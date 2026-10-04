@@ -13,6 +13,7 @@ import {
   type ConversationSummary,
 } from "@/lib/api";
 import { formatDay, formatTime, localDateOf } from "@/lib/dates";
+import { UrgentBanner } from "@/components/UrgentBanner";
 
 const POLL_MS = 4000;
 
@@ -103,6 +104,7 @@ export default function ConversationScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <UrgentBanner />
       <View style={styles.header}>
         <Pressable accessibilityRole="button" accessibilityLabel="Back to all messages" onPress={back} style={styles.back}>
           <Text style={styles.backText}>‹ All messages</Text>
