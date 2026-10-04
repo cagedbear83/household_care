@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useAuth } from "@/lib/auth-context";
+import { UrgentBanner } from "@/components/UrgentBanner";
 import { ApiError, getChatPeople, getConversations, startDirect, type ChatPerson, type ConversationSummary } from "@/lib/api";
 
 const POLL_MS = 8000;
@@ -92,6 +93,7 @@ export default function MessagesScreen() {
         />
       }
     >
+      <UrgentBanner />
       <View style={styles.headerRow}>
         <Text style={styles.title} accessibilityRole="header">
           Messages

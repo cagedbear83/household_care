@@ -24,7 +24,8 @@ export function FloatingBar() {
   const badges = useBadges();
 
   const signedIn = Boolean(token && user);
-  const hidden = !signedIn || HIDDEN_ON.includes(pathname);
+  // Never over the message screens: the Send button and the typing box are down there. They get a banner at the top instead.
+  const hidden = !signedIn || HIDDEN_ON.includes(pathname) || pathname.startsWith("/messages");
   const staff = user?.role === "CLIENT" || user?.role === "ADMIN";
   const userId = user?.id;
   const role = user?.role;
