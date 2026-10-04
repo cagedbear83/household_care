@@ -1,0 +1,29 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+backend/.pgdata/
+
+# Expo / React Native
+mobile/.expo/
+mobile/.expo-shared/
+mobile/node_modules/
+mobile/dist/
+mobile/web-build/
+mobile/*.jks
+mobile/*.p8
+mobile/*.p12
+mobile/*.key
+mobile/*.mobileprovision
+
+# Evidence photos (dev storage); production uses a retention-locked object store
+backend/storage/
+
+# Local editor and tool settings
+.idea/
+.claude/
+
+# Private originals that must never be committed (household-specific documents)
+private/

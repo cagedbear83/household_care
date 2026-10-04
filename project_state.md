@@ -1,0 +1,101 @@
+# Project state: Household Care (IP support app)
+
+Snapshot taken 2026-10-04. Built against `IP-App-Specification.md` (the source of truth for rules). `README.md` documents each feature in more detail; this file is the "where are we" summary for picking the work back up.
+
+## Branches
+
+`development` (local building, current working branch), `staging` (pre-production, fake data only), `main` (production). Work flows development, then staging, then main; feature work happens on short-lived `feature/*` and `fix/*` branches. Full rules, promotion checklist, migration and hotfix process are in `BRANCHING.md`. The repository is local only (no remote yet), so branch protection is by agreement until one is added.
+
+## What this is
+
+A full-stack app for an Individual Provider (IP) caring for one client who is blind or has low vision in a household: attendance with a geofenced check-in, a task checklist with photo evidence, client review, family visibility, chat, alerts, spoken summaries, reports, corrections and retention. Core rules: strict 36-hour weekly authorization cap, append-only hash-chained audit log, server-side enforcement of roles and household scope, and nothing original is ever edited or deleted.
+
+Roles: **CLIENT**, **ADMIN** (also the case manager; same powers as the client except client-only decisions), **IP**, **FAMILY** (read-only; times and photos only if the client approved).
+
+## Status in one line
+
+Backend and app are feature-complete for the scope below and verified (204 backend tests, mobile type-check/lint clean, Android bundle builds, browser walkthroughs). **Not yet run on a real phone or emulator**, **not deployed**, **the first commit is on `main`**; there is no remote yet.
+
+## Stack
+
+- **Backend** (`backend/`): Node 24, TypeScript, Express 4, Prisma 5.22, PostgreSQL 18, zod, luxon, node-cron (every minute), bcryptjs, jsonwebtoken, sharp, nodemailer (SMTP, untested live), Twilio over fetch (untested live), vitest.
+- **Mobile/web** (`mobile/`): Expo SDK 57, React Native 0.86, Expo Router (routes in `mobile/src/app`), react-native-web (browser preview), expo-camera, expo-location, expo-secure-store, expo-speech, expo-print. `.npmrc` has `legacy-peer-deps=true`.
+- **Dev database:** embedded Postgres via `npm run dev:db` (port **55432**, db `household_care`). Chocolatey Postgres was not usable (no admin).
+
+## How to run
+
+Three terminals:
+
+1. `cd backend && npm run dev:db`
+2. `cd backend && npm run dev` (API on **4000**)
+3. `cd mobile && npx expo start --web` (web on **8081**); Android emulator: `npx expo start --android --port 8082` (reaches the API at `10.0.2.2:4000`)
+
+Tests: `cd backend && npm test` (runs against the dev DB using throwaway households; 11 files, 204 tests). Mobile checks: `npx tsc --noEmit`, `npx expo lint`, `npm run check:voice`, `npx expo export -p android`.
+
+Demo accounts (all `ChangeMe123!`): `client@example.com`, `admin@example.com`, `ip@example.com`. Family: `sam.sister@example.com` / `fresh-start-2026` (approved for photos and times). Helpers: `backend/scripts/demo-today.ts` (a checked-in visit for today with tasks done), `demo-alerts.ts` (sample alerts), `verify-chain.ts`.
+
+With no SMTP/Twilio configured, messages print to the backend console and are stored in `OutboundMessage`; invite links and 6-digit codes also show in the UI (dev only). Config is in `backend/.env` (see `.env.example`: `APP_BASE_URL`, `ENABLE_DEV_OUTBOX`, `SMTP_URL`/`EMAIL_FROM`, `TWILIO_*`, `FOOD_RESPONSE_MINUTES`, `COMPLETION_BURST_THRESHOLD`).
+
+## Layout
+
+- `backend/src/services/`: one file per domain (authorization, schedule, task, evidence, review, comment, invite, chat, food, shopping, alert + alert-feed, summary, report, correction, retention, profile, password-reset, notify, event, time, geofence...). `routes/` mounts them; `index.ts` wires routers and the per-minute cron (close expired authorizations, escalate unanswered food requests, deliver pending alert messages).
+- `backend/prisma/`: `schema.prisma` and 8 migrations (latest `20261004113713_corrections_retention`). Models include Household, User, ScheduledShift, WeekAllowance, Event (hash chain), TaskTemplate/TaskInstance, Evidence, Invite, Comment, Conversation/Message, FoodDisposalRequest, ShoppingItem, Alert/AlertRead, ContactChange, CorrectionRequest/Correction, RetentionPolicy/RetentionHold.
+- `mobile/src/app/`: `home` (hub), `today` (IP shift), `alerts`, `review`, `corrections`, `food`, `shopping`, `schedule`, `templates`, `family`, `hear`, `reports`, `retention`, `settings`, `messages/*`, `supplies` (IP), `capture` (camera), `login`, `forgot-password`, `invite`.
+- `mobile/src/lib/`: `api.ts` (all calls and types), auth, dates, location, storage, speech, badges, voice parser/input, report formatting/HTML, print.
+
+## What is built
+
+- **Auth:** email or phone sign-in, bcrypt + JWT, active/revoked check on every request, session revocation (`tokensValidAfter`), password reset by 6-digit code, rate limiting (in memory).
+- **Scheduling:** shifts with edit/cancel history, recurring weekly rules, vacation/sick days, 36-hour cap enforced under row locks, DST-safe times, task templates (changes apply to future shifts only).
+- **Attendance:** geofenced check-in/out, periodic pings while the app is open, server sweep that closes authorization at scheduled end or cap; observed and authorized time kept separate; forgotten checkout stays missing.
+- **Tasks and evidence:** every-visit checklist snapshotted at check-in; complete / not needed / unable / decline reporting; one-use capture challenge, in-app camera only, hashing, write-once storage, metadata-stripped viewer copy, location check on photos.
+- **Client review:** approve, dispute (reason required), corrective work while the shift is open, confirm or deny reported declines; each step its own event.
+- **Family:** invite by email or phone, name confirmation, second-contact verification, per-person photo/time approval, revoke; comments on any task or photo; read-only Review.
+- **Chat:** household group plus private direct messages (polling).
+- **Food and shopping:** disposal requests that need the client's approval, hazard reports, escalation if unanswered; shopping list with merging, IP low-supply reports, auto-add after approved disposal.
+- **Alerts:** own records with per-person read state, dedupe, "handled" auto-resolution, urgent labelled in words, text/email delivery queue with 3 retries; triggers include IP-reported decline, early check-in/checkout, tasks undone at checkout, completion bursts ("may need a look"), completion-error reports. Alerts clear only when the client taps into them.
+- **Spoken summaries:** server-written text (`/summaries`), Hear screen with Stop, speed, ask-first for "done today", optional auto-read of new urgent alerts, web voice commands.
+- **Home hub:** everyone lands on Home; a button per place by role; every other screen has a Home button.
+- **Settings:** name, email/phone change by code sent to the new contact, password change (other devices signed out).
+- **Reports:** day/week/month/custom, task outcome counts and the spec's percentage formulas, authorized vs observed time, weekly cap table, exceptions, family without approval gets task counts only, print or save as PDF from the device, nothing stored (only a "report generated" audit event).
+- **Corrections:** IP reports a mistake; client/admin appends a correction linked to the original event (completion error, attendance note, other note) or answers without one; originals untouched; corrected task stops counting as done and reopens for the IP.
+- **Retention:** period history, a record is protected for the longest period in force since it was made (a later reduction never unlocks it), preservation holds, unresolved disputes preserved, password re-entry and audit for every change, status counts. The app never deletes anything.
+
+## Key invariants to keep
+
+- `appendEvent` (per-household advisory lock, chain head found by "no successor") is the only writer of the audit log; nothing updates or deletes events.
+- State changes use atomic `updateMany ... where state in [...]`; cap and shopping merges use row locks.
+- IP responses go through allow-lists (`ip-dto.ts`); the IP never gets audit timestamps. A test pins the exact fields.
+- Family sees status without times or photos unless `canViewTimestamps`; the server omits them, it does not just hide them.
+- Corrections and attendance notes never change observed times or original events.
+- Nothing is flagged as proven wrong; patterns say "may need a look".
+- SMS/email text is kept free of personal details.
+
+## Not built / next steps
+
+1. **Deployment.** Plan: free tier for demos (Render + Neon + Cloudflare R2, with a `/internal/tick` endpoint for the cron), and **AWS with a signed BAA for real client data** (EC2/Fargate, RDS, S3 with Object Lock, SES, Secrets Manager). Needs an S3 evidence adapter (the one file to swap is `evidence-store.ts`), container setup, CORS locked to the real web address, HTTPS. Free hosts generally offer no HIPAA agreement. Confirm with compliance whether HIPAA applies.
+2. **Real devices.** Camera, GPS and print/PDF have not been run on a phone or emulator; reading aloud has only been checked in a browser; no screen-reader (TalkBack/VoiceOver) pass.
+3. **Push notifications** (everything polls today; urgent items are texted or emailed). Voice input and voice approvals on phones. True background location needs a native build with `expo-task-manager`.
+4. **Retention follow-through:** archive to retention-locked storage and disposal of expired records; PIN/biometric re-confirmation instead of password; step-up auth and idle lock/session expiry for admin actions (spec asks for 5-minute lock, 30-minute session).
+5. **Reports:** IP's own hours report, CSV export.
+6. **Scheduling gaps:** weekly/monthly task distribution across visits; marking unresolved tasks missed at shift end and carrying them to an admin-approved later shift; requesting a task; family view of the shopping list; admin dashboard; flagging earlier shifts with a missing checkout on admin screens.
+7. **Live providers:** SMTP and Twilio code paths have never run against real services.
+8. **Rate limiter is per process** (in memory); needs a shared store or edge limiting if more than one server runs.
+9. **Config items the spec lists** that still need real values: apartment coordinates/address, the program workweek, actual schedule, service-plan duties, retention choice (currently the 2-year recommendation, confirmed in the demo data only).
+
+## Gotchas for whoever continues
+
+- Stop the backend (the `tsx watch` process and its node child on port 4000, **never** the dev-db process) before `prisma generate`, or Windows locks the DLL.
+- Migrations: `prisma migrate dev` refuses non-interactively here. Use `prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --script`, write the SQL without a BOM into a new `migrations/<timestamp>_name/migration.sql`, then `migrate deploy` and `generate`.
+- The Bash tool breaks on large heredocs with quotes; write files with the file tools or small node scripts.
+- Tests share the dev database. A failed teardown leaves a throwaway household behind; delete by name prefix (`*-test`).
+- Prisma `NOT (col IN (...))` drops rows where the column is NULL; count the held set directly instead. An empty filter object is not read as "everything".
+- Order spoken or listed task output explicitly (template order); unordered queries gave inconsistent text once.
+- The browser pane often cannot screenshot; verify with page text or DOM scripts. React Native Web inputs need the native value setter plus an `input` event to update.
+- Dev DB name is `household_care`, encoding WIN1252 (keep dev text to characters that encoding accepts).
+
+## Verification record (as of this snapshot)
+
+- Backend: `tsc` clean; vitest 204 passed across 11 files, run repeatedly with no failures after the ordering fix.
+- Mobile: `tsc` and `expo lint` clean; `npm run check:voice` passes 25 phrases; `expo export -p android` bundles.
+- Browser walkthroughs done for: Home per role, Alerts flow (tap to acknowledge), Hear, Settings (name, phone code, password), Reports and print output, IP report -> admin correction -> IP sees reopened task, Retention (confirm, shorten rules, hold place/release).

@@ -1,0 +1,740 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Core household / identity
+// ---------------------------------------------------------------------------
+
+model Household {
+  id                   String   @id @default(uuid())
+  name                 String
+  timezone             String   @default("America/Chicago")
+  weeklyHourCapMinutes  Int      @default(2160) // 36 hours, strict max per spec
+  workweekStartWeekday Int      @default(1) // 0=Sunday ... 1=Monday (spec default: Monday 00:00)
+  apartmentLat         Float
+  apartmentLng         Float
+  geofenceRadiusMeters Float    @default(60.96) // 200 ft
+  periodicPingMinutes  Int      @default(45) // within the 30-60 min approved range
+  retentionDays        Int      @default(730) // 2-year default recommendation
+  createdAt            DateTime @default(now())
+
+  users           User[]
+  recurringRules  RecurringScheduleRule[]
+  shifts          ScheduledShift[]
+  events          Event[]
+  taskTemplates   TaskTemplate[]
+  locationReadings LocationReading[]
+}
+
+enum Role {
+  ADMIN
+  CLIENT
+  IP
+  FAMILY
+}
+
+model User {
+  id              String   @id @default(uuid())
+  householdId     String
+  household       Household @relation(fields: [householdId], references: [id])
+  role            Role
+  name            String   // display name; for invited family this is "First Last" as they confirmed it
+  firstName       String?
+  lastName        String?
+  // A person can sign in with either contact. Invited family start with only
+  // the one the invite was sent to, and must add and verify the other.
+  email           String?  @unique
+  phone           String?  @unique // E.164, e.g. +13125550123
+  emailVerifiedAt DateTime?
+  phoneVerifiedAt DateTime?
+  relationship    String?  // family only, e.g. "Sister"
+  // When the account became usable. Group-chat history is shown from this moment on.
+  activatedAt     DateTime?
+  passwordHash    String
+  active          Boolean  @default(true)
+  // Family-only: explicit, client-controlled exception to view audit timestamps (spec section "Accounts and permissions")
+  canViewTimestamps Boolean @default(false)
+  // Family-only: access can be revoked by the client at any time; revocation must cut off API access immediately
+  accessRevokedAt DateTime?
+  // Sessions issued at or before this moment are rejected. Set when the password is reset, so a stolen session cannot outlive it.
+  tokensValidAfter DateTime?
+  createdAt       DateTime @default(now())
+
+  shiftsAsIp      ScheduledShift[] @relation("ShiftIp")
+  events          Event[]
+  locationReadings LocationReading[]
+
+  @@index([householdId])
+}
+
+// ---------------------------------------------------------------------------
+// Scheduling
+// ---------------------------------------------------------------------------
+
+model RecurringScheduleRule {
+  id            String   @id @default(uuid())
+  householdId   String
+  household     Household @relation(fields: [householdId], references: [id])
+  ipUserId      String
+  weekday       Int // 0=Sunday .. 6=Saturday
+  startLocal    String // "HH:mm" in household timezone
+  endLocal      String
+  effectiveFrom DateTime // versioned prospectively: edits create a new row rather than mutating history
+  effectiveUntil DateTime?
+  active        Boolean  @default(true)
+  createdBy     String
+  createdAt     DateTime @default(now())
+
+  @@index([householdId, ipUserId])
+}
+
+enum ShiftStatus {
+  SCHEDULED
+  VACATION
+  SICK
+  CLIENT_UNAVAILABLE
+  NOT_SCHEDULED
+}
+
+enum ClosedReason {
+  SCHEDULED_END
+  WEEKLY_CAP
+  MANUAL_CHECKOUT
+}
+
+model ScheduledShift {
+  id                 String   @id @default(uuid())
+  householdId        String
+  household          Household @relation(fields: [householdId], references: [id])
+  ipUserId           String
+  ip                 User     @relation("ShiftIp", fields: [ipUserId], references: [id])
+  localDate          String   // YYYY-MM-DD in household timezone; "daily" means this scheduled date
+  scheduledStartUtc  DateTime
+  scheduledEndUtc    DateTime
+  status             ShiftStatus @default(SCHEDULED)
+  recurringSourceId  String?
+  createdBy          String
+  createdAt          DateTime @default(now())
+  // superseded shifts are never deleted; a correction creates a new row and points back here
+  supersedesShiftId  String?  @unique
+  // Set when this row was replaced or cancelled. A superseded row is kept
+  // forever (history); every "active schedule" query must filter on null.
+  supersededAt        DateTime?
+  supersededByShiftId String?
+
+  // --- server-computed authorization state (recalculated, never silently shortens observed events) ---
+  authorizedEndUtc   DateTime? // min(scheduledEndUtc, start + remaining weekly allowance at check-in time)
+  authorizationClosedAt DateTime?
+  authorizationClosedReason ClosedReason?
+
+  checkInEventId     String?
+  checkOutEventId     String?
+  observedCheckInUtc  DateTime?
+  observedCheckOutUtc DateTime?
+
+  taskInstances      TaskInstance[]
+  locationReadings   LocationReading[]
+  events             Event[]
+
+  @@index([householdId, ipUserId, localDate])
+}
+
+// Tracks consumed weekly minutes per IP so check-in/check-out can enforce the
+// 36-hour cap atomically under row locks, independent of ScheduledShift rows.
+model WeekAllowance {
+  id                 String   @id @default(uuid())
+  householdId        String
+  ipUserId           String
+  weekStartLocalDate String   // YYYY-MM-DD, the Monday (or configured start) of the workweek
+  consumedMinutes    Int      @default(0)
+  updatedAt          DateTime @updatedAt
+
+  @@unique([householdId, ipUserId, weekStartLocalDate])
+}
+
+// ---------------------------------------------------------------------------
+// Append-only audit log — the source of truth for every state transition.
+// No application code path may UPDATE or DELETE a row in this table.
+// ---------------------------------------------------------------------------
+
+model Event {
+  id                String   @id @default(uuid())
+  householdId       String
+  household         Household @relation(fields: [householdId], references: [id])
+  actorUserId       String?
+  actor             User?    @relation(fields: [actorUserId], references: [id])
+  actorRole         Role
+  shiftId           String?
+  shift             ScheduledShift? @relation(fields: [shiftId], references: [id])
+  taskInstanceId    String?
+  taskInstance      TaskInstance? @relation(fields: [taskInstanceId], references: [id])
+  action            String   // e.g. "check_in", "check_out", "task_completed", "dispute_raised", ...
+  // Stored as Postgres `json` (not `jsonb`) specifically because `json`
+  // preserves the exact input text/key order, which the hash chain in
+  // event.service.ts depends on; `jsonb` would re-order keys and silently
+  // break hash verification after a round trip through the database.
+  payload           Json     @db.Json
+  serverTimestampUtc DateTime @default(now())
+  // hash chain: sha256(previousHash + householdId + action + payload + serverTimestampUtc)
+  previousEventId   String?
+  hash              String
+
+  @@index([householdId, serverTimestampUtc])
+  @@index([shiftId])
+  @@index([taskInstanceId])
+}
+
+// ---------------------------------------------------------------------------
+// Location evidence
+// ---------------------------------------------------------------------------
+
+enum LocationSource {
+  CHECK_IN
+  CHECK_OUT
+  PERIODIC
+  PHOTO_CAPTURE
+}
+
+enum VerificationResult {
+  VERIFIED
+  UNVERIFIED
+  FAILED
+}
+
+model LocationReading {
+  id               String   @id @default(uuid())
+  householdId      String
+  household        Household @relation(fields: [householdId], references: [id])
+  shiftId          String?
+  shift            ScheduledShift? @relation(fields: [shiftId], references: [id])
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  source           LocationSource
+  observedAtDevice DateTime? // phone-reported capture time; never presented as independently proven
+  receivedAtServer DateTime @default(now())
+  lat              Float
+  lng              Float
+  accuracyMeters   Float?
+  distanceMeters   Float?
+  verification     VerificationResult
+
+  @@index([householdId, shiftId])
+}
+
+// ---------------------------------------------------------------------------
+// Tasks
+// ---------------------------------------------------------------------------
+
+enum TaskFrequency {
+  VISIT
+  WEEKLY
+  MONTHLY
+  AS_NEEDED
+}
+
+model TaskTemplate {
+  id             String   @id @default(uuid())
+  householdId    String
+  household      Household @relation(fields: [householdId], references: [id])
+  groupName      String
+  title          String
+  instructions   String
+  frequency      TaskFrequency
+  requiresPhoto  Boolean  @default(false)
+  sortOrder      Int      @default(0)
+  active         Boolean  @default(true)
+
+  taskInstances  TaskInstance[]
+
+  @@index([householdId])
+}
+
+enum TaskState {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED_AWAITING_REVIEW
+  APPROVED
+  DISPUTED
+  CORRECTIVE_WORK_SUBMITTED
+  DECLINED_AWAITING_CONFIRMATION
+  CLIENT_DECLINED_CONFIRMED
+  NOT_NEEDED
+  UNABLE_TO_COMPLETE
+  MISSED_AT_SHIFT_END
+  // An administrator corrected a recorded completion (or exception) that was a mistake. The original
+  // events stay in the log; the task counts as not done and the IP can do it again while the visit is open.
+  COMPLETION_ERROR_CORRECTED
+}
+
+model TaskInstance {
+  id           String   @id @default(uuid())
+  householdId  String
+  shiftId      String
+  shift        ScheduledShift @relation(fields: [shiftId], references: [id])
+  templateId   String
+  template     TaskTemplate @relation(fields: [templateId], references: [id])
+  assignedDate String   // YYYY-MM-DD, preserved even if the template is edited later
+  // snapshot of the instructions at assignment time, so editing a template never rewrites history
+  titleSnapshot String
+  instructionsSnapshot String
+  requiresPhotoSnapshot Boolean
+  state        TaskState @default(NOT_STARTED)
+  reasonCode   String?
+  reasonText   String?
+  // The client's latest message to the IP about this task (a dispute reason,
+  // or why a reported decline was not accepted). A convenience projection;
+  // the full history lives in the event log.
+  clientNote   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  events       Event[]
+  evidence     Evidence[]
+
+  @@index([shiftId])
+  @@index([householdId, assignedDate])
+}
+
+/// One-use ticket issued when the IP opens the in-app camera for a task. An
+/// upload is only accepted against an unused, unexpired challenge that was
+/// issued to that same user, shift and task.
+model CaptureChallenge {
+  id             String    @id @default(uuid())
+  householdId    String
+  // Null for photos that are not about a task (a food photo).
+  taskInstanceId String?
+  purpose        String    @default("task_photo")
+  shiftId        String
+  userId         String
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime
+  usedAt         DateTime?
+
+  @@index([taskInstanceId])
+}
+
+model Evidence {
+  id                     String   @id @default(uuid())
+  taskInstanceId         String
+  taskInstance           TaskInstance @relation(fields: [taskInstanceId], references: [id])
+  eventId                String   @unique
+  contentHash            String   // sha256 of the original bytes (integrity, not proof of truth)
+  storageRef             String   // write-once original (admin/audit only)
+  viewerStorageRef       String   // metadata-stripped copy that viewers are served
+  mimeType               String
+  byteSize               Int
+  captureChallengeId      String   // one-use server challenge the capture was bound to
+  capturedAtDevice        DateTime?
+  uploadAcceptedAtServer  DateTime @default(now())
+  createdByUserId         String
+
+  @@index([taskInstanceId])
+}
+
+// ---------------------------------------------------------------------------
+// Family invitations and onboarding
+// ---------------------------------------------------------------------------
+
+enum ContactChannel {
+  EMAIL
+  SMS
+}
+
+enum InviteStatus {
+  PENDING   // sent, link not yet used
+  ACCEPTED  // account created, still needs the second contact verified
+  COMPLETED // both contacts verified; the account is active
+  REVOKED
+}
+
+/// One invitation per family member. The link token is shown only once (in the
+/// message) and only its hash is stored. Onboarding: accept (confirm name, set
+/// password, confirm the contact the invite went to) -> add the other contact
+/// -> verify it with a code -> the account is activated.
+model Invite {
+  id                String       @id @default(uuid())
+  householdId       String
+  invitedByUserId   String
+  role              Role         @default(FAMILY)
+  channel           ContactChannel
+  contact           String       // normalized email or E.164 phone the invite was sent to
+  firstName         String
+  lastName          String
+  relationship      String?
+  canViewTimestamps Boolean      @default(false)
+  tokenHash         String       @unique
+  expiresAt         DateTime
+  status            InviteStatus @default(PENDING)
+  userId            String?
+  createdAt         DateTime     @default(now())
+  acceptedAt        DateTime?
+  completedAt       DateTime?
+  revokedAt         DateTime?
+
+  // Second-contact verification (a 6-digit code sent to the contact being added)
+  pendingContact       String?
+  pendingCodeHash      String?
+  pendingCodeExpiresAt DateTime?
+  pendingCodeSentAt    DateTime?
+  pendingCodeAttempts  Int       @default(0)
+
+  @@index([householdId])
+}
+
+enum OutboundStatus {
+  SENT
+  FAILED
+}
+
+/// Every email/SMS the app tries to send, with the provider result. In
+/// development (no provider configured) messages land here and in the console.
+model OutboundMessage {
+  id          String         @id @default(uuid())
+  householdId String
+  channel     ContactChannel
+  toAddress   String
+  subject     String?
+  body        String
+  kind        String         // "invite" | "verification"
+  status      OutboundStatus
+  provider    String
+  error       String?
+  createdAt   DateTime       @default(now())
+
+  @@index([householdId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Comments (task and photo) and chat
+// ---------------------------------------------------------------------------
+
+/// Append-only: a comment is never edited or deleted. evidenceId set means it is about that photo.
+model Comment {
+  id             String   @id @default(uuid())
+  householdId    String
+  taskInstanceId String
+  evidenceId     String?
+  authorUserId   String
+  body           String
+  createdAt      DateTime @default(now())
+
+  @@index([taskInstanceId])
+  @@index([evidenceId])
+}
+
+enum ConversationKind {
+  GROUP
+  DIRECT
+}
+
+model Conversation {
+  id          String           @id @default(uuid())
+  householdId String
+  kind        ConversationKind
+  // "group:<householdId>" or "dm:<smallerUserId>:<largerUserId>", so each is created once.
+  uniqueKey   String           @unique
+  userAId     String?          // direct messages only
+  userBId     String?
+  createdAt   DateTime         @default(now())
+
+  messages Message[]
+
+  @@index([householdId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderUserId   String
+  body           String
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model ConversationRead {
+  userId         String
+  conversationId String
+  lastReadAt     DateTime
+
+  @@id([userId, conversationId])
+}
+
+// ---------------------------------------------------------------------------
+// Password reset
+// ---------------------------------------------------------------------------
+
+/// A 6-digit code sent to the email/phone on the account. Only its hash is stored.
+model PasswordReset {
+  id        String         @id @default(uuid())
+  userId    String
+  channel   ContactChannel
+  contact   String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int            @default(0)
+  usedAt    DateTime?
+  createdAt DateTime       @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Food disposal and the shopping list
+// ---------------------------------------------------------------------------
+
+enum FoodRequestKind {
+  DISPOSAL // ask first, throw away only after the client approves
+  HAZARD   // an obvious hazard already dealt with; reported, never silently approved
+}
+
+enum FoodRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  DISPOSED
+  HAZARD_REPORTED
+  HAZARD_ACKNOWLEDGED
+}
+
+model FoodDisposalRequest {
+  id                String            @id @default(uuid())
+  householdId       String
+  shiftId           String
+  kind              FoodRequestKind
+  requestedByUserId String
+  item              String
+  location          String            // exactly where it is, so it can be found again
+  reasonCode        String
+  reasonText        String?
+  dateLabel         String?           // the expiration / use-by date on the label, where relevant
+  replacement       String?           // proposed replacement; if set, it goes on the shopping list after disposal
+  actionTaken       String?           // hazards only
+  status            FoodRequestStatus
+  decidedByUserId   String?
+  decidedAt         DateTime?
+  decisionNote      String?
+  disposedByUserId  String?
+  disposedAt        DateTime?
+  acknowledgedByUserId String?
+  acknowledgedAt    DateTime?
+  // Set when nobody answered in time: the item stays in place and administrators are alerted.
+  escalatedAt       DateTime?
+  photoHash         String?
+  photoStorageRef   String?
+  photoViewerRef    String?
+  photoMime         String?
+  photoBytes        Int?
+  photoLocationVerification String?
+  photoAcceptedAt   DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([householdId, status])
+  @@index([householdId, createdAt])
+}
+
+enum ShoppingStatus {
+  NEEDED
+  LOW
+  OUT
+  PURCHASED
+  DISMISSED
+}
+
+enum ShoppingSource {
+  CLIENT
+  ADMIN
+  IP_REPORT
+  DISPOSAL
+}
+
+/// One open row per item per household (duplicates merge); closed rows (bought or dismissed) are kept as history.
+model ShoppingItem {
+  id              String         @id @default(uuid())
+  householdId     String
+  name            String
+  nameKey         String         // lower-case, single-spaced, for merging duplicates
+  quantity        String?        // free text, only if known ("2 dozen")
+  storageLocation String?
+  status          ShoppingStatus
+  source          ShoppingSource
+  note            String?
+  reportCount     Int            @default(1)
+  createdByUserId String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  closedAt        DateTime?
+  closedByUserId  String?
+
+  @@index([householdId, status])
+  @@index([householdId, nameKey])
+}
+
+// ---------------------------------------------------------------------------
+// In-app alerts
+// ---------------------------------------------------------------------------
+
+enum AlertSeverity {
+  URGENT
+  NORMAL
+  INFO
+}
+
+/// What shows up on the alerts screen. The audit log keeps the permanent record
+/// (the `alert_raised` event); this row adds who should see it, whether it is
+/// handled, and the state of its text/email delivery. Read state is per person.
+model Alert {
+  id             String        @id @default(uuid())
+  householdId    String
+  type           String
+  severity       AlertSeverity
+  title          String
+  message        String
+  audience       Role[]        // which roles see it
+  link           String?       // the in-app screen where it can be acted on
+  shiftId        String?
+  actorUserId    String?
+  eventId        String?       // the audit event
+  refId          String?       // what it is about (a food request, a task, a shopping item)
+  dedupeKey      String?       // the same matter does not alert twice
+  resolvedAt     DateTime?     // the matter was handled (for example, the client answered)
+  notifyPending  Boolean       @default(false)
+  notifiedAt     DateTime?
+  notifyAttempts Int           @default(0)
+  createdAt      DateTime      @default(now())
+
+  reads AlertRead[]
+
+  @@unique([householdId, dedupeKey])
+  @@index([householdId, createdAt])
+  @@index([householdId, type, refId])
+}
+
+model AlertRead {
+  alertId String
+  alert   Alert    @relation(fields: [alertId], references: [id])
+  userId  String
+  readAt  DateTime @default(now())
+
+  @@id([alertId, userId])
+}
+
+// ---------------------------------------------------------------------------
+// Settings: changing the email address or phone number on an account
+// ---------------------------------------------------------------------------
+
+// A new contact only replaces the old one after the person enters the 6-digit
+// code sent to the NEW address or number, which proves they own it.
+model ContactChange {
+  id        String         @id @default(uuid())
+  userId    String
+  channel   ContactChannel
+  contact   String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int            @default(0)
+  usedAt    DateTime?
+  createdAt DateTime       @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Corrections: an IP reports a mistake, an administrator appends a correction
+// ---------------------------------------------------------------------------
+
+enum CorrectionKind {
+  COMPLETION_ERROR // a recorded task completion or exception was a mistake
+  ATTENDANCE       // a note about a check-in, checkout or closure (observed times are never changed)
+  NOTE             // any other factual note about a recorded event
+}
+
+enum CorrectionRequestStatus {
+  OPEN
+  RESOLVED
+  DECLINED
+}
+
+// "Report completion error": an IP can only ask. Rows are never edited except
+// to close the request (once, atomically) and never deleted.
+model CorrectionRequest {
+  id                String                  @id @default(uuid())
+  householdId       String
+  requestedByUserId String
+  taskInstanceId    String?
+  shiftId           String?
+  linkedEventId     String                  // the recorded event the request is about
+  reason            String
+  status            CorrectionRequestStatus @default(OPEN)
+  resolvedByUserId  String?
+  resolvedAt        DateTime?
+  correctionId      String?                 @unique
+  declineReason     String?
+  createdAt         DateTime                @default(now())
+
+  @@index([householdId, status])
+  @@index([requestedByUserId, createdAt])
+}
+
+// Append-only. Never updated or deleted; the original event it points to is untouched.
+model Correction {
+  id             String         @id @default(uuid())
+  householdId    String
+  kind           CorrectionKind
+  linkedEventId  String
+  taskInstanceId String?
+  shiftId        String?
+  reason         String
+  byUserId       String
+  byRole         Role
+  requestId      String?        @unique
+  eventId        String?        // the audit event that recorded this correction
+  createdAt      DateTime       @default(now())
+
+  @@index([householdId, createdAt])
+  @@index([taskInstanceId])
+}
+
+// ---------------------------------------------------------------------------
+// Retention: how long records are kept, and holds that keep them longer
+// ---------------------------------------------------------------------------
+
+// Every choice is a new row (history is kept). A record is protected for the
+// longest period in force from when it was recorded onward, so shortening the
+// policy later never unlocks records that were already protected.
+model RetentionPolicy {
+  id            String   @id @default(uuid())
+  householdId   String
+  retentionDays Int
+  effectiveFrom DateTime @default(now())
+  setByUserId   String
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  @@index([householdId, effectiveFrom])
+}
+
+// A preservation hold keeps records past the normal period (a dispute, a
+// program review, a legal requirement). Placing and releasing are both audited.
+model RetentionHold {
+  id               String    @id @default(uuid())
+  householdId      String
+  reason           String
+  fromDate         String?   // YYYY-MM-DD in the household timezone; empty means from the beginning
+  toDate           String?   // empty means no end
+  placedByUserId   String
+  placedAt         DateTime  @default(now())
+  releasedByUserId String?
+  releasedAt       DateTime?
+  releaseReason    String?
+
+  @@index([householdId, releasedAt])
+}
