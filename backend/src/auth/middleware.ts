@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import type { Role } from "@prisma/client";
 import { verifyAuthToken } from "./jwt";
 import { db } from "../db";
+import { effectiveRole } from "./effective-role";
 
 export interface AuthenticatedRequest extends Request {
   auth?: {
@@ -10,6 +11,8 @@ export interface AuthenticatedRequest extends Request {
     role: Role;
     /** Family only: the client approved this person to see photos and times. */
     canViewTimestamps: boolean;
+    /** The primary family member acts with the client's access (role is then CLIENT); this stays true so it is never hidden. */
+    primaryFamily: boolean;
   };
 }
 
@@ -39,7 +42,8 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
       return res.status(401).json({ error: "Your session has ended. Please sign in again." });
     }
 
-    req.auth = { userId: user.id, householdId: user.householdId, role: user.role, canViewTimestamps: user.canViewTimestamps };
+    const primaryFamily = user.role === "FAMILY" && user.isPrimaryFamily;
+    req.auth = { userId: user.id, householdId: user.householdId, role: effectiveRole(user), canViewTimestamps: user.canViewTimestamps || primaryFamily, primaryFamily };
     next();
   } catch {
     return res.status(401).json({ error: "Invalid or expired token" });

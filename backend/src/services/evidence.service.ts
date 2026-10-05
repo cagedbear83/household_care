@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { AWAY_MESSAGE, clientIsAway } from "./away.service";
 import { appendEvent } from "./event.service";
 import { raiseAlert } from "./alert.service";
 import { evaluateGeofence, type VerificationResult } from "./geofence.service";
@@ -46,6 +47,9 @@ async function loadPhotoTask(userId: string, householdId: string, taskInstanceId
   });
   if (!task || task.shift.ipUserId !== userId) {
     throw new EvidenceRejectedError("NOT_FOUND", "Task not found.");
+  }
+  if (await clientIsAway(householdId)) {
+    throw new EvidenceRejectedError("CLIENT_AWAY", AWAY_MESSAGE);
   }
   if (!task.requiresPhotoSnapshot) {
     throw new EvidenceRejectedError("PHOTO_NOT_REQUIRED", "This task does not take a photo.");

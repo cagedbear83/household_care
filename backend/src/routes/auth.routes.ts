@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { db } from "../db";
 import { verifyPassword } from "../auth/password";
+import { sessionUser } from "../auth/effective-role";
 import { signAuthToken } from "../auth/jwt";
 import { rateLimit } from "../auth/rate-limit";
 import { parseIdentifier } from "../services/contact.service";
@@ -55,8 +56,5 @@ authRouter.post("/login", rateLimit({ max: 30, windowMs: 60_000 }), async (req, 
   }
 
   const token = signAuthToken({ userId: user.id, householdId: user.householdId, role: user.role });
-  return res.json({
-    token,
-    user: { id: user.id, name: user.name, role: user.role, householdId: user.householdId },
-  });
+  return res.json({ token, user: sessionUser(user) });
 });

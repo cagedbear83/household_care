@@ -143,18 +143,21 @@ export function ReviewTaskCard({ task, token, timezone, canDecide, showDay, busy
       )}
 
       {canDecide && waiting && mode === null && (
-        <View style={styles.row}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Approve ${task.title}`} onPress={onApprove} disabled={busy} style={[styles.approve, busy && styles.disabled]}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.approveText}>Approve</Text>}
+        <View style={styles.askBlock}>
+          <Text style={styles.ask}>Did the IP complete this task properly?</Text>
+          <View style={styles.row}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Yes, ${task.title} was done properly`} onPress={onApprove} disabled={busy} style={[styles.approve, busy && styles.disabled]}>
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.approveText}>Yes, done properly</Text>}
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Dispute ${task.title}`} onPress={() => setMode("dispute")} disabled={busy} style={styles.dispute}>
-            <Text style={styles.disputeText}>Dispute</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={`No, ${task.title} needs to be done again`} onPress={() => setMode("dispute")} disabled={busy} style={styles.dispute}>
+            <Text style={styles.disputeText}>No, do it again</Text>
           </Pressable>
           {onLater && (
             <Pressable accessibilityRole="button" accessibilityLabel={`Review ${task.title} later`} onPress={onLater} disabled={busy} style={styles.later}>
               <Text style={styles.laterText}>Review later</Text>
             </Pressable>
           )}
+          </View>
         </View>
       )}
 
@@ -240,6 +243,8 @@ export function ReviewTaskCard({ task, token, timezone, canDecide, showDay, busy
 }
 
 const styles = StyleSheet.create({
+  askBlock: { gap: 8 },
+  ask: { fontSize: 17, fontWeight: "700", color: "#1a1a1a" },
   card: { borderWidth: 1, borderColor: "#c8c8c8", borderRadius: 10, padding: 14, gap: 8 },
   cardUrgent: { borderWidth: 2, borderColor: "#0b5fff" },
   title: { fontSize: 17, fontWeight: "700" },

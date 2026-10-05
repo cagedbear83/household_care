@@ -230,7 +230,8 @@ describe("signing up from the invitation", () => {
     const result = await verifyOtherContact(token, again.devCode!);
 
     expect(result.token).toBeTruthy();
-    expect(result.user).toMatchObject({ role: "FAMILY", name: "Susan Sibling-Smith" });
+    // The first family member to finish signing up is the primary one: the same access as the client.
+    expect(result.user).toMatchObject({ role: "CLIENT", primaryFamily: true, name: "Susan Sibling-Smith" });
     const user = await db.user.findFirstOrThrow({ where: { email } });
     expect(user).toMatchObject({ active: true, phone: second });
     expect(user.phoneVerifiedAt).not.toBeNull();

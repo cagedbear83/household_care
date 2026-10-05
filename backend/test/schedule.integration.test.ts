@@ -23,8 +23,8 @@ let actor: Actor;
 let ipId: string;
 let otherIpId: string;
 
-// Week of Mon 2027-01-04 .. Sun 2027-01-10 (America/Chicago, no DST nearby).
-const day = (n: number) => `2027-01-${String(4 + n).padStart(2, "0")}`;
+// Workweek Sun 2027-01-03 .. Sat 2027-01-09 (Sunday to Saturday, America/Chicago, no DST nearby).
+const day = (n: number) => `2027-01-${String(3 + n).padStart(2, "0")}`;
 
 async function expectRejected(promise: Promise<unknown>, code: string) {
   await expect(promise).rejects.toMatchObject({ code });
@@ -88,7 +88,7 @@ describe("createShift", () => {
     for (let i = 1; i <= 5; i++) {
       await createShift(actor, { ipUserId: ipId, localDate: day(i), startLocal: "09:00", endLocal: "15:00", status: "SCHEDULED" });
     }
-    // Mon-Sat is now 6 x 6h = 36h.
+    // Sunday through Friday is now 6 x 6h = 36h.
     await expectRejected(
       createShift(actor, { ipUserId: ipId, localDate: day(6), startLocal: "09:00", endLocal: "09:01", status: "SCHEDULED" }),
       "WEEKLY_CAP_EXCEEDED"
@@ -135,7 +135,8 @@ describe("createShift", () => {
   });
 
   it("cannot be raced past the weekly cap by concurrent requests", async () => {
-    const week = ["2027-05-03", "2027-05-04", "2027-05-05", "2027-05-06", "2027-05-07", "2027-05-08", "2027-05-09"];
+    // Sunday 2027-05-02 through Saturday 2027-05-08: one workweek.
+    const week = ["2027-05-02", "2027-05-03", "2027-05-04", "2027-05-05", "2027-05-06", "2027-05-07", "2027-05-08"];
     // Seven 6h shifts submitted at once: only six (36h) may succeed.
     const settled = await Promise.allSettled(
       week.map((d) => createShift(actor, { ipUserId: ipId, localDate: d, startLocal: "09:00", endLocal: "15:00", status: "SCHEDULED" }))

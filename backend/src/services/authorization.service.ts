@@ -1,7 +1,8 @@
-import type { ClosedReason } from "@prisma/client";
+import type { ClosedReason, Prisma } from "@prisma/client";
 import { db } from "../db";
 import { appendEvent } from "./event.service";
 import { raiseAlert } from "./alert.service";
+import { AWAY_MESSAGE, clientIsAway } from "./away.service";
 import { evaluateGeofence, type VerificationResult } from "./geofence.service";
 import { localDateString, workweekStartLocalDate, diffMinutes } from "./time.service";
 import { createVisitTaskInstances } from "./task.service";
@@ -11,6 +12,25 @@ const DEFAULT_TOLERANCE_MINUTES = 10;
 // Below this accuracy a fix cannot be trusted enough to open an authorized
 // window at all (see geofence.service.ts for the shared threshold used to
 // classify VERIFIED/UNVERIFIED/FAILED).
+
+/** Warn when this much time is recorded in a rolling 24 hours (the program's limit without approval is 16 hours). */
+export const LONG_DAY_WARN_MINUTES = 14 * 60;
+
+/** Observed minutes (check-in to checkout, or to now when still open) for an IP over the 24 hours ending now, across every visit. */
+export async function rollingObservedMinutes(tx: Prisma.TransactionClient, ipUserId: string, now: Date): Promise<number> {
+  const since = new Date(now.getTime() - 24 * 3_600_000);
+  const shifts = await tx.scheduledShift.findMany({
+    where: { ipUserId, observedCheckInUtc: { not: null, lt: now }, OR: [{ observedCheckOutUtc: null }, { observedCheckOutUtc: { gt: since } }] },
+    select: { observedCheckInUtc: true, observedCheckOutUtc: true },
+  });
+  let minutes = 0;
+  for (const s of shifts) {
+    const from = s.observedCheckInUtc! > since ? s.observedCheckInUtc! : since;
+    const to = s.observedCheckOutUtc && s.observedCheckOutUtc < now ? s.observedCheckOutUtc : now;
+    minutes += Math.max(0, (to.getTime() - from.getTime()) / 60_000);
+  }
+  return minutes;
+}
 
 export class CheckInRejectedError extends Error {
   constructor(public code: string, message: string) {
@@ -55,6 +75,10 @@ export async function checkIn(input: CheckInInput) {
     }
     if (shift.checkInEventId) {
       throw new CheckInRejectedError("ALREADY_CHECKED_IN", "This shift already has a check-in recorded.");
+    }
+    // The client is in hospital, on vacation or otherwise away: no work is authorized until they are back.
+    if (await clientIsAway(shift.householdId)) {
+      throw new CheckInRejectedError("CLIENT_AWAY", AWAY_MESSAGE);
     }
 
     const household = await tx.household.findUniqueOrThrow({ where: { id: shift.householdId } });
@@ -365,6 +389,20 @@ export async function checkOut(input: CheckOutInput) {
         type: "early_checkout",
         shiftId: shift.id,
         message: `The IP checked out ${Math.round(earlyBy)} minute(s) before the scheduled end.`,
+      });
+    }
+
+    // The program needs the counselor's approval beyond 16 hours in 24: warn well before that.
+    const rolling = await rollingObservedMinutes(tx, input.ipUserId, now);
+    if (rolling >= LONG_DAY_WARN_MINUTES) {
+      await raiseAlert(tx, {
+        householdId: shift.householdId,
+        actorUserId: input.ipUserId,
+        actorRole: "IP",
+        type: "long_day",
+        shiftId: shift.id,
+        message: `${(rolling / 60).toFixed(1)} hours were recorded in the last 24 hours. The program needs the counselor's approval above 16 hours in 24.`,
+        dedupeKey: `long_day:${shift.id}`,
       });
     }
 

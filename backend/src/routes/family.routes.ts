@@ -2,6 +2,7 @@ import { Router, type Response } from "express";
 import { z } from "zod";
 import { requireAuth, requireRole, type AuthenticatedRequest } from "../auth/middleware";
 import { createInvite, InviteError, listFamily, resendInvite, revokeFamilyMember, setFamilyVisibility } from "../services/invite.service";
+import { makePrimaryFamily, PrimaryFamilyError } from "../services/primary-family.service";
 
 /**
  * Family access. The client controls it; an administrator may help with setup
@@ -14,7 +15,7 @@ familyRouter.use(requireAuth, requireRole("ADMIN", "CLIENT"));
 const actorOf = (req: AuthenticatedRequest) => ({ userId: req.auth!.userId, role: req.auth!.role, householdId: req.auth!.householdId });
 
 function handleError(res: Response, err: unknown) {
-  if (err instanceof InviteError) return res.status(err.status).json({ error: err.message, code: err.code });
+  if (err instanceof InviteError || err instanceof PrimaryFamilyError) return res.status(err.status).json({ error: err.message, code: err.code });
   throw err;
 }
 
@@ -52,9 +53,10 @@ familyRouter.post("/:id/resend", async (req: AuthenticatedRequest, res) => {
   }
 });
 
-familyRouter.post("/:id/revoke", requireRole("CLIENT"), async (req: AuthenticatedRequest, res) => {
+familyRouter.post("/:id/revoke", requireRole("CLIENT", "ADMIN"), async (req: AuthenticatedRequest, res) => {
   try {
-    await revokeFamilyMember(actorOf(req), req.params.id!);
+    const reason = typeof req.body?.reason === "string" ? req.body.reason : undefined;
+    await revokeFamilyMember(actorOf(req), req.params.id!, reason);
     return res.json({ ok: true });
   } catch (err) {
     return handleError(res, err);
@@ -66,6 +68,18 @@ familyRouter.patch("/:id", requireRole("CLIENT"), async (req: AuthenticatedReque
   if (!parsed.success) return res.status(400).json({ error: "Invalid request" });
   try {
     await setFamilyVisibility(actorOf(req), req.params.id!, parsed.data.canViewTimestamps);
+    return res.json({ ok: true });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+// Only an administrator can choose a different primary family member (the person's user id, not the invitation id).
+familyRouter.post("/primary", requireRole("ADMIN"), async (req: AuthenticatedRequest, res) => {
+  const parsed = z.object({ userId: z.string().min(1), reason: z.string() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Choose a person and say why.", code: "INVALID" });
+  try {
+    await makePrimaryFamily(actorOf(req), parsed.data.userId, parsed.data.reason);
     return res.json({ ok: true });
   } catch (err) {
     return handleError(res, err);

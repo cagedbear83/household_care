@@ -34,6 +34,8 @@ export default function TodayScreen() {
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [reportsKey, setReportsKey] = useState(0);
   const [message, setMessage] = useState<{ kind: "error" | "info"; text: string } | null>(null);
+  // The client is away: check-in and tasks are paused (the IP is never told why).
+  const [workPaused, setWorkPaused] = useState(false);
   const pingInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -41,6 +43,7 @@ export default function TodayScreen() {
     try {
       const result = await getTodayShift(token);
       setShift(result.shift);
+      setWorkPaused(Boolean(result.workPaused));
     } catch (err) {
       setMessage({ kind: "error", text: err instanceof ApiError ? err.message : "Could not load today's shift." });
     }
@@ -215,6 +218,12 @@ export default function TodayScreen() {
         {user?.name ? `Hi, ${user.name}` : "Today"}
       </Text>
 
+      {workPaused && (
+        <Text style={styles.errorBanner} accessibilityLiveRegion="assertive" role="alert">
+          Work is paused. The client is away, so check-in and tasks are paused. You will be told when work can start again. You can still check out.
+        </Text>
+      )}
+
       {message && (
         <Text
           style={message.kind === "error" ? styles.errorBanner : styles.infoBanner}
@@ -240,9 +249,10 @@ export default function TodayScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Check in"
+              accessibilityState={{ disabled: actionBusy || workPaused }}
               onPress={handleCheckIn}
-              disabled={actionBusy}
-              style={[styles.primaryButton, actionBusy && styles.buttonDisabled]}
+              disabled={actionBusy || workPaused}
+              style={[styles.primaryButton, (actionBusy || workPaused) && styles.buttonDisabled]}
             >
               {actionBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Check in</Text>}
             </Pressable>

@@ -3,6 +3,7 @@ import type { ContactChannel, User } from "@prisma/client";
 import { db } from "../db";
 import { hashPassword, verifyPassword } from "../auth/password";
 import { signAuthToken } from "../auth/jwt";
+import { effectiveRole } from "../auth/effective-role";
 import { appendEvent } from "./event.service";
 import { maskContact, parseIdentifier } from "./contact.service";
 import { devOutboxEnabled, sendMessage } from "./notify.service";
@@ -46,15 +47,16 @@ export async function getProfile(userId: string) {
     id: user.id,
     name: user.name,
     ...splitName(user),
-    role: user.role,
-    roleLabel: ROLE_LABELS[user.role] ?? user.role,
+    role: effectiveRole(user),
+    primaryFamily: user.role === "FAMILY" && user.isPrimaryFamily,
+    roleLabel: user.role === "FAMILY" && user.isPrimaryFamily ? "Family (primary: same access as the client)" : (ROLE_LABELS[user.role] ?? user.role),
     email: user.email,
     phone: user.phone,
     emailVerified: user.emailVerifiedAt !== null,
     phoneVerified: user.phoneVerifiedAt !== null,
     relationship: user.relationship,
     // Family only: what the client approved this person to see.
-    canViewTimestamps: user.role === "FAMILY" ? user.canViewTimestamps : null,
+    canViewTimestamps: user.role === "FAMILY" && !user.isPrimaryFamily ? user.canViewTimestamps : null,
     household: user.household,
   };
 }

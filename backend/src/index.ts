@@ -19,7 +19,10 @@ import { alertsRouter } from "./routes/alerts.routes";
 import { summariesRouter } from "./routes/summaries.routes";
 import { reportsRouter } from "./routes/reports.routes";
 import { correctionsRouter } from "./routes/corrections.routes";
-import { retentionRouter } from "./routes/retention.routes";
+import { awayRouter } from "./routes/away.routes";
+import { preservationsRouter } from "./routes/preservations.routes";
+import { removeExpiredPhotos } from "./services/photo-retention";
+import { sendPayPeriodReminders, sendWeeklyHoursNotices } from "./services/scheduled-notices.service";
 import { deliverPendingAlerts } from "./services/alert-feed.service";
 import { closeExpiredAuthorizations } from "./services/authorization.service";
 import { escalateStaleFoodRequests } from "./services/food.service";
@@ -50,7 +53,8 @@ app.use("/alerts", alertsRouter);
 app.use("/summaries", summariesRouter);
 app.use("/reports", reportsRouter);
 app.use("/corrections", correctionsRouter);
-app.use("/retention", retentionRouter);
+app.use("/away", awayRouter);
+app.use("/preservations", preservationsRouter);
 if (process.env.NODE_ENV !== "production") app.use("/dev", devRouter);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -86,9 +90,26 @@ cron.schedule("* * * * *", () => {
     // eslint-disable-next-line no-console
     console.error("escalateStaleFoodRequests failed", err);
   });
+  // Weekly hours for the IP and the pay-period reminder: each is sent once when its time comes.
+  sendWeeklyHoursNotices().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("sendWeeklyHoursNotices failed", err);
+  });
+  sendPayPeriodReminders().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("sendPayPeriodReminders failed", err);
+  });
   // Text/email the people an alert is for (retried up to 3 times, each sent once).
   deliverPendingAlerts().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("deliverPendingAlerts failed", err);
+  });
+});
+
+// Once a day, shortly after 3 a.m.: remove photos that are a year old (never ones tied to a dispute or inside a preservation).
+cron.schedule("17 3 * * *", () => {
+  removeExpiredPhotos().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("removeExpiredPhotos failed", err);
   });
 });

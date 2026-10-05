@@ -16,12 +16,11 @@ model Household {
   name                 String
   timezone             String   @default("America/Chicago")
   weeklyHourCapMinutes  Int      @default(2160) // 36 hours, strict max per spec
-  workweekStartWeekday Int      @default(1) // 0=Sunday ... 1=Monday (spec default: Monday 00:00)
+  workweekStartWeekday Int      @default(0) // 0=Sunday ... 6=Saturday. Sunday-to-Saturday, matching the union agreement's overtime week
   apartmentLat         Float
   apartmentLng         Float
   geofenceRadiusMeters Float    @default(60.96) // 200 ft
   periodicPingMinutes  Int      @default(45) // within the 30-60 min approved range
-  retentionDays        Int      @default(730) // 2-year default recommendation
   createdAt            DateTime @default(now())
 
   users           User[]
@@ -60,6 +59,9 @@ model User {
   active          Boolean  @default(true)
   // Family-only: explicit, client-controlled exception to view audit timestamps (spec section "Accounts and permissions")
   canViewTimestamps Boolean @default(false)
+  // Family-only: the first family member to activate. Has the same access as the client (approvals, away mode and so on),
+  // and the client cannot remove it. Only an administrator can change who it is. One per household (enforced in the service).
+  isPrimaryFamily Boolean @default(false)
   // Family-only: access can be revoked by the client at any time; revocation must cut off API access immediately
   accessRevokedAt DateTime?
   // Sessions issued at or before this moment are rejected. Set when the password is reset, so a stolen session cannot outlive it.
@@ -333,6 +335,8 @@ model Evidence {
   capturedAtDevice        DateTime?
   uploadAcceptedAtServer  DateTime @default(now())
   createdByUserId         String
+  // Set when the picture itself was removed after its fixed period. The hash, time and audit event stay.
+  purgedAt                DateTime?
 
   @@index([taskInstanceId])
 }
@@ -534,6 +538,7 @@ model FoodDisposalRequest {
   photoBytes        Int?
   photoLocationVerification String?
   photoAcceptedAt   DateTime?
+  photoPurgedAt     DateTime? // set when the picture itself was removed after its fixed period; the hash and record stay
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -704,37 +709,66 @@ model Correction {
 }
 
 // ---------------------------------------------------------------------------
-// Retention: how long records are kept, and holds that keep them longer
+// Client away (hospital, vacation): the IP cannot check in or do tasks
 // ---------------------------------------------------------------------------
 
-// Every choice is a new row (history is kept). A record is protected for the
-// longest period in force from when it was recorded onward, so shortening the
-// policy later never unlocks records that were already protected.
-model RetentionPolicy {
-  id            String   @id @default(uuid())
-  householdId   String
-  retentionDays Int
-  effectiveFrom DateTime @default(now())
-  setByUserId   String
-  reason        String?
-  createdAt     DateTime @default(now())
-
-  @@index([householdId, effectiveFrom])
+enum AwayKind {
+  HOSPITAL
+  VACATION
+  OTHER
 }
 
-// A preservation hold keeps records past the normal period (a dispute, a
-// program review, a legal requirement). Placing and releasing are both audited.
-model RetentionHold {
+model AwayPeriod {
+  id                 String    @id @default(uuid())
+  householdId        String
+  kind               AwayKind
+  startedAt          DateTime  @default(now())
+  expectedReturnDate String?   // YYYY-MM-DD in the household timezone; informational, it does not end the period
+  note               String?
+  setByUserId        String
+  endedAt            DateTime?
+  endedByUserId      String?
+
+  @@index([householdId, endedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Preservation: keep everything in a date range (an audit or a dispute)
+// ---------------------------------------------------------------------------
+
+// Only ever adds protection. While one is active, photos from visits in its
+// dates are not removed when their year is up.
+model Preservation {
   id               String    @id @default(uuid())
   householdId      String
+  fromDate         String    // YYYY-MM-DD in the household timezone
+  toDate           String
   reason           String
-  fromDate         String?   // YYYY-MM-DD in the household timezone; empty means from the beginning
-  toDate           String?   // empty means no end
   placedByUserId   String
   placedAt         DateTime  @default(now())
-  releasedByUserId String?
   releasedAt       DateTime?
+  releasedByUserId String?
   releaseReason    String?
 
   @@index([householdId, releasedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled notices: each is sent once
+// ---------------------------------------------------------------------------
+
+model WeeklyHoursNotice {
+  ipUserId           String
+  weekStartLocalDate String
+  sentAt             DateTime @default(now())
+
+  @@id([ipUserId, weekStartLocalDate])
+}
+
+model PayPeriodReminder {
+  householdId String
+  localDate   String   // the last day of the pay period (the 15th or the last day of the month)
+  sentAt      DateTime @default(now())
+
+  @@id([householdId, localDate])
 }

@@ -30,6 +30,8 @@ Assign duties that fit the client’s existing authorized service plan. This app
 
 Family timestamp access is the exception explicitly approved in the later questionnaire. The IP sees simple completion status and attendance totals, not hidden audit data. Enforce this distinction in server responses, downloads, photo metadata and notifications, not merely by hiding interface elements.
 
+Primary family member. The first family member to finish signing up has the same access as the client, including approvals and away mode, and receives the same notifications, so that someone can always act if the client is ill, in hospital or otherwise unable. The client cannot remove this role; only an administrator can change who holds it, with a reason, and every change is audited. Everything the primary family member does is recorded under their own name.
+
 ## Master every-visit checklist
 
 “Daily” means each scheduled IP visit; unscheduled days do not produce missed-duty alerts. Repeat meal cleanup and final kitchen checks if the apartment becomes dirty again during the shift.
@@ -117,7 +119,11 @@ IP mistakes use “Report completion error.” Administrators append a correctio
 
 ## Scheduling and the strict hours limit
 
-Administrators can manually choose days, create recurring schedules, set each day’s start/end and mark not scheduled, vacation, sick, or client unavailable. Reject overlapping shifts and schedules above 36 hours per configured workweek. Proposed default workweek: Monday 12:00 a.m. to next Monday 12:00 a.m. in the household's configured timezone (this build defaults to America/Chicago); align to the workweek the authorizing program uses during setup. Version workweek changes prospectively.
+Administrators can manually choose days, create recurring schedules, set each day’s start/end and mark not scheduled, vacation, sick, or client unavailable. Reject overlapping shifts and schedules above the weekly limit. Workweek: Sunday 12:00 a.m. to the next Sunday 12:00 a.m. in the household's configured timezone (this build defaults to America/Chicago). The program's union agreement defines the overtime week as Sunday through Saturday, and overtime (time and a half) begins after 40 hours, with a 60-hour weekly maximum. Version workweek changes prospectively.
+
+The weekly limit is the client's Service Plan hours (36 hours per week in this household). No more than eight hours can be scheduled in one day, and nobody (client or administrator) can schedule past that. The program itself allows up to sixteen hours in twenty-four, and needs the counselor's approval beyond that, so the app warns the client and administrators when more than fourteen hours are recorded in a rolling twenty-four hours.
+
+Client away mode. When the client is in hospital, on vacation or otherwise away, the IP cannot check in or complete tasks (the program does not authorize paid work then without the counselor's prior approval). Checking out stays possible. The client, an administrator or the primary family member can turn this on and off, so it can still be done if the client cannot. The IP is only told that work is paused, never why.
 
 Six hours is a usual shift, not a universal daily cap: the admin-set daily window controls. Early check-in attempts are logged and flagged but do not start authorized time. A late check-in does not automatically extend the scheduled end. Reject unscheduled/future check-ins and all future task completion. Previous/future lists remain readable but historical work cannot be changed by the IP.
 
@@ -167,13 +173,15 @@ Server-assigned timestamps and server-side authorization are mandatory. No ordin
 
 No system can promise “unalterable no matter what” against every infrastructure compromise or account destruction. The deliverable is enforced application immutability, retention-locked originals and detectable alteration, with documented limits. Compliance-mode object storage is an example of protection that prevents overwrite/deletion of protected versions during a set retention period.
 
-Individual logins, no shared passwords, secure account recovery, session revocation, and biometric/passkey or app PIN reauthentication for sensitive administrator actions are required. Proposed inactivity defaults: administrative lock after five minutes, authenticated-session expiry after 30 minutes, with accessible warning/extension. Logging out the interface must not silently close a server-side active shift. Audit schedule, task-template, permission, notification and retention-setting changes. Reauthentication must happen at the action, not just at page load.
+Individual logins, no shared passwords, secure account recovery, session revocation, and biometric/passkey or app PIN reauthentication for sensitive administrator actions are required. Proposed inactivity defaults: administrative lock after five minutes, authenticated-session expiry after 30 minutes, with accessible warning/extension. Logging out the interface must not silently close a server-side active shift. Audit schedule, task-template, permission and notification changes. Reauthentication must happen at the action, not just at page load.
 
 Protect data in transit and at rest, enforce household scope on every server query/action, restrict evidence downloads, and use minimal personal details in SMS/email. Revoked family accounts lose API access immediately. Test that IP accounts cannot obtain hidden timestamps from alternate endpoints, exports or evidence metadata.
 
 ## Alerts and exception detection
 
 Send important notifications through app, SMS and email to configured administrators, with client action requests sent directly to the client. Track delivery/retries and deduplicate alerts. Ordinary completions update the dashboard without individual administrator messages.
+
+Two scheduled notices. Each Sunday morning the IP receives an email with their own hours for the Sunday-to-Saturday week just ended, for their own records: totals only, with no client details, clearly marked as not the official time sheet and not the state's electronic visit verification (EVV) record. On the 15th and the last day of each month, the client and the primary family member are reminded to review the hours before signing the time sheet, which the program says must never be signed ahead of time.
 
 Immediate alerts: check-in; failed/outside-geofence verification; IP-claimed client decline; client dispute; food approval request; required tasks unfinished near checkout; early checkout; extra/unauthorized time; suspicious patterns; low supply; completion-error report.
 
@@ -185,7 +193,7 @@ Daily, weekly, monthly and custom date-range reports; date search; printable/PDF
 
 Report completed, client-approved, confirmed-declined, unable/not-needed and missed counts separately. Completion percentage = submitted completions divided by all assigned required tasks, with disputed completions clearly identified. Also show approved-completion percentage and coverage/resolution counts; do not inflate completion by counting declines as work done. Preserve the assigned-task snapshot so editing templates does not rewrite historical percentages.
 
-Recommended household policy: retain underlying attendance, tasks, notes, evidence, approvals, corrections and administrative events for two years from the event date. This is a product recommendation, not a statement of any program's legally required retention period. One year is the user’s requested baseline, but two years allows comparison across annual cycles and more time to review patterns. Configure retention before go-live; preserve disputed material until its review is resolved and any applicable preservation requirement is addressed. Separate locked archive retention from routine backups; a later policy reduction cannot unlock existing protected records early.
+Retention is a fixed rule of the product, not a setting. All attendance, tasks, notes, approvals, corrections and administrative events are kept for at least ten years from the event date, and no role (client, administrator or otherwise) can shorten or change that period. Ten years matches the longest period found for this kind of employment: the Illinois wage-claim window is ten years, federal and Illinois payroll, pay-stub and leave records need three years, and federal employment-tax records need about four to five. This is a product decision, not legal advice; confirm it with the authorizing program. Material tied to a dispute that is not yet resolved is kept regardless of age. After ten years, records are archived and compressed to lower-cost storage; the app itself never deletes them. Evidence photos are not payroll records: they exist so the client and family can see that the work is being done, without hovering. They are removed one year after they were accepted. That period is fixed (no setting) and an approval never removes a photo early. Photos tied to a dispute, corrective work or a reported mistake, and photos from dates covered by an audit or dispute preservation, are kept like the other records. The audit event, content hash, time and location result of every photo are kept for the full ten years. Keep the locked archive separate from routine backups.
 
 Generated reports should not be stored permanently by the app. Create on demand, use short-lived access and no-store cache controls, delete temporary server copies promptly, and expire leftovers after a short fixed interval because browser-close signals are unreliable. The app cannot remotely erase PDFs that someone downloads, prints, screenshots or retains in a browser. Underlying source history remains available for regeneration until retention expires.
 
@@ -200,11 +208,11 @@ Generated reports should not be stored permanently by the app. Create on demand,
 7. Client completes all core flows using TalkBack, large text, keyboard and voice alternatives on real devices; VoiceOver flows are tested wherever iOS is supported.
 8. Family access revocation and role enforcement work across dashboards, APIs, photos, reports and notifications.
 9. Weekly totals handle daylight-saving transitions and workweek boundaries; duplicate submissions do not create duplicate work/events.
-10. Restore from backup, verify archive integrity, validate retention expiration and temporary report cleanup, and confirm notification delivery failure handling.
+10. Restore from backup, verify archive integrity, validate the archive process for records past ten years and temporary report cleanup, and confirm notification delivery failure handling.
 
 ## Setup values to enter before launch
 
-Apartment coordinates/address; the authorizing program's workweek; actual IP schedule; authorized service-plan duties; account invitations and verified notification contacts; recurring task days; non-kitchen mopping frequency; object/storage locations; dietary requirements; retention selection and applicable program guidance. These are configuration items, not a new household questionnaire.
+Apartment coordinates/address; the authorizing program's workweek; actual IP schedule; authorized service-plan duties; account invitations and verified notification contacts; recurring task days; non-kitchen mopping frequency; object/storage locations; dietary requirements; applicable program guidance. These are configuration items, not a new household questionnaire.
 
 ## Technical references
 

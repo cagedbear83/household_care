@@ -1,8 +1,10 @@
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, type Href } from "expo-router";
 import { useAuth } from "@/lib/auth-context";
 import { useBadges } from "@/lib/badges";
-import type { Role } from "@/lib/api";
+import { getMe, type Role } from "@/lib/api";
+import { AwayCard } from "@/components/AwayCard";
 
 interface Tile {
   key: string;
@@ -28,7 +30,6 @@ const TILES: Tile[] = [
   { key: "family", label: "Family", note: "Invitations and access", href: "/family", roles: STAFF },
   { key: "hear", label: "Hear", note: "Listen to an update", href: "/hear", roles: [...STAFF, "FAMILY"] },
   { key: "reports", label: "Reports", note: "Hours and task results", href: "/reports", roles: [...STAFF, "FAMILY"] },
-  { key: "retention", label: "Retention", note: "How long records are kept", href: "/retention", roles: STAFF },
   { key: "messages", label: "Messages", note: "Chat with the household", href: "/messages", roles: ["CLIENT", "ADMIN", "FAMILY", "IP"] },
   { key: "settings", label: "Settings", note: "Your name, contact and password", href: "/settings", roles: ["CLIENT", "ADMIN", "FAMILY", "IP"] },
 ];
@@ -37,8 +38,17 @@ const count = (n: number) => (n > 99 ? "99+" : String(n));
 
 /** The first screen after signing in: one big button for each place the person can go. */
 export default function HomeScreen() {
-  const { user, loading, signOut } = useAuth();
+  const { token, user, loading, signOut } = useAuth();
   const badges = useBadges();
+  const [timezone, setTimezone] = useState<string | null>(null);
+  const onClientSide = user?.role === "CLIENT" || user?.role === "ADMIN";
+
+  useEffect(() => {
+    if (!token || !onClientSide) return;
+    getMe(token)
+      .then((me) => setTimezone(me.household.timezone))
+      .catch(() => setTimezone("America/Chicago"));
+  }, [token, onClientSide]);
 
   if (loading) {
     return (
@@ -58,6 +68,8 @@ export default function HomeScreen() {
         {first ? `Hello, ${first}` : "Hello"}
       </Text>
       <Text style={styles.help}>Choose where you would like to go.</Text>
+
+      {onClientSide && token && timezone && <AwayCard token={token} timezone={timezone} />}
 
       <View style={styles.grid}>
         {tiles.map((t) => {

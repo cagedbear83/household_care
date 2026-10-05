@@ -15,7 +15,13 @@ export async function notifyRolesNow(
   body: string
 ): Promise<{ sent: number; failed: number }> {
   const people = await db.user.findMany({
-    where: { householdId, role: { in: roles }, active: true, accessRevokedAt: null },
+    // The primary family member gets whatever the client gets.
+    where: {
+      householdId,
+      active: true,
+      accessRevokedAt: null,
+      OR: [{ role: { in: roles } }, ...(roles.includes("CLIENT") ? [{ role: "FAMILY" as const, isPrimaryFamily: true }] : [])],
+    },
     select: { email: true, phone: true },
   });
   let sent = 0;

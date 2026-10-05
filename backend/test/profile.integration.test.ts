@@ -97,7 +97,7 @@ describe("password", () => {
     expect(JSON.stringify(event!.payload)).not.toContain("brand-new");
     // A notice went to the address on the account.
     expect((await outboundTo(emails.me)).some((m) => /password was just changed/.test(m.body))).toBe(true);
-  });
+  }, 30_000); // a deliberate 2-second wait plus two slow password hashes
 });
 
 describe("changing an email address or phone number", () => {
