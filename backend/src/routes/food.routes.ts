@@ -15,6 +15,7 @@ import {
   reportHazard,
 } from "../services/food.service";
 import { EvidenceRejectedError } from "../services/image.service";
+import { isFoodPhotoRemoved } from "../services/photo-retention";
 
 /**
  * Food disposal. The IP asks (or reports an immediate hazard); the client
@@ -118,6 +119,9 @@ foodRouter.get("/requests", requireRole("ADMIN", "CLIENT"), async (req: Authenti
 
 // Always the metadata-stripped copy, never cached.
 foodRouter.get("/requests/:id/photo", requireRole("ADMIN", "CLIENT"), async (req: AuthenticatedRequest, res) => {
+  if (await isFoodPhotoRemoved(req.auth!.householdId, req.params.id!)) {
+    return res.status(410).json({ error: "This photo was removed after one year. The record that it was taken is kept.", code: "PHOTO_REMOVED" });
+  }
   const bytes = await loadFoodPhoto(req.auth!.householdId, req.params.id!);
   if (!bytes) return res.status(404).json({ error: "Not found" });
   res.setHeader("Cache-Control", "no-store");

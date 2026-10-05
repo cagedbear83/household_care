@@ -3,6 +3,8 @@ import { Prisma, type ContactChannel, type Invite, type Role } from "@prisma/cli
 import { db } from "../db";
 import { hashPassword } from "../auth/password";
 import { signAuthToken } from "../auth/jwt";
+import { sessionUser } from "../auth/effective-role";
+import { ensurePrimaryFamily } from "./primary-family.service";
 import { appendEvent } from "./event.service";
 import { maskContact, normalizeEmail, normalizePhone } from "./contact.service";
 import { devOutboxEnabled, sendMessage } from "./notify.service";
@@ -174,11 +176,24 @@ export async function resendInvite(actor: InviteActor, inviteId: string) {
 }
 
 /** Turns access off immediately (the auth check reads this on every request). Client only; enforced by the route. */
-export async function revokeFamilyMember(actor: InviteActor, inviteId: string) {
+export async function revokeFamilyMember(actor: InviteActor, inviteId: string, rawReason?: string) {
   return db.$transaction(async (tx) => {
     const invite = await tx.invite.findFirst({ where: { id: inviteId, householdId: actor.householdId } });
     if (!invite) throw new InviteError("NOT_FOUND", "Invitation not found.", 404);
     if (invite.status === "REVOKED") throw new InviteError("ALREADY_REVOKED", "Access is already turned off.");
+
+    const person = invite.userId ? await tx.user.findUnique({ where: { id: invite.userId } }) : null;
+    const isPrimary = Boolean(person?.isPrimaryFamily);
+    // The primary family member cannot be removed by the client or by themselves; only an administrator can, with a reason.
+    // Everyone else is the client's to turn off, not an administrator's.
+    if (isPrimary && actor.role !== "ADMIN") {
+      throw new InviteError("PRIMARY_PROTECTED", "The primary family member can only be changed by an administrator.", 403);
+    }
+    if (!isPrimary && actor.role === "ADMIN") {
+      throw new InviteError("FORBIDDEN", "Only the client controls family access.", 403);
+    }
+    const reason = (rawReason ?? "").replace(/[ -]/g, "").trim();
+    if (isPrimary && reason.length < 3) throw new InviteError("REASON_REQUIRED", "Say why (a few words at least).", 400);
 
     await tx.invite.update({ where: { id: invite.id }, data: { status: "REVOKED", revokedAt: new Date() } });
     if (invite.userId) await tx.user.update({ where: { id: invite.userId }, data: { accessRevokedAt: new Date() } });
@@ -187,8 +202,10 @@ export async function revokeFamilyMember(actor: InviteActor, inviteId: string) {
       actorUserId: actor.userId,
       actorRole: actor.role,
       action: "family_revoked",
-      payload: { inviteId: invite.id, userId: invite.userId },
+      payload: { inviteId: invite.id, userId: invite.userId, ...(isPrimary ? { wasPrimary: true, reason } : {}) },
     });
+    // Someone else steps up if there is anyone (the earliest to have activated).
+    if (isPrimary) await ensurePrimaryFamily(tx, actor.householdId);
   });
 }
 
@@ -216,7 +233,7 @@ export async function listFamily(householdId: string) {
   const accountIds = invites.map((i) => i.userId).filter((id): id is string => id !== null);
   const accounts = await db.user.findMany({
     where: { id: { in: accountIds } },
-    select: { id: true, email: true, phone: true, emailVerifiedAt: true, phoneVerifiedAt: true },
+    select: { id: true, email: true, phone: true, emailVerifiedAt: true, phoneVerifiedAt: true, isPrimaryFamily: true },
   });
   const byId = new Map(accounts.map((u) => [u.id, u]));
   const inviterRows = await db.user.findMany({
@@ -240,6 +257,8 @@ export async function listFamily(householdId: string) {
       emailVerified: Boolean(u?.emailVerifiedAt),
       phoneVerified: Boolean(u?.phoneVerifiedAt),
       canViewTimestamps: i.canViewTimestamps,
+      userId: i.userId,
+      isPrimary: Boolean(u?.isPrimaryFamily),
       invitedBy: inviters.get(i.invitedByUserId) ?? null,
       createdAt: i.createdAt,
     };
@@ -423,11 +442,13 @@ export async function verifyOtherContact(token: string, code: string) {
         action: "family_onboarding_completed",
         payload: { inviteId: invite.id, secondContactChannel: channel },
       });
-      return updated;
+      // The first family member to finish becomes the primary one (the same access as the client).
+      await ensurePrimaryFamily(tx, invite.householdId);
+      return tx.user.findUniqueOrThrow({ where: { id: updated.id } });
     });
     return {
       token: signAuthToken({ userId: user.id, householdId: user.householdId, role: user.role }),
-      user: { id: user.id, name: user.name, role: user.role, householdId: user.householdId },
+      user: sessionUser(user),
     };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

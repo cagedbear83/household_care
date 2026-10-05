@@ -9,6 +9,7 @@ import { reportToHtml } from "@/lib/report-html";
 import { clock, isDate, minutesLabel, PERCENT_ROWS, pctLabel, RANGE_LABEL, rangeFor, rangeLabel, stepAnchor, TASK_ROWS, VISIT_STATUS, type RangeKind } from "@/lib/report-format";
 import { Chip } from "@/components/Chip";
 import { HomeBar } from "@/components/HomeBar";
+import { PreservationSection } from "@/components/PreservationSection";
 
 const KINDS: RangeKind[] = ["day", "week", "month", "custom"];
 
@@ -154,6 +155,10 @@ export default function ReportsScreen() {
 
       {report && (
         <ReportView report={report} view={view} setView={setView} onPrint={print} printError={printError} />
+      )}
+
+      {(user?.role === "CLIENT" || user?.role === "ADMIN") && token && (
+        <PreservationSection token={token} defaultFrom={range?.from ?? ""} defaultTo={range?.to ?? ""} />
       )}
     </ScrollView>
   );

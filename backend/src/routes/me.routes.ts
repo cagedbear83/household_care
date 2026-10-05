@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "../db";
 import { rateLimit } from "../auth/rate-limit";
 import { requireAuth, type AuthenticatedRequest } from "../auth/middleware";
+import { effectiveRole } from "../auth/effective-role";
 import { changePassword, confirmContactChange, getProfile, ProfileError, startContactChange, updateName } from "../services/profile.service";
 
 /** Who is signed in and the household settings every screen needs (any role), plus "Settings": a person's own information. */
@@ -22,10 +23,11 @@ meRouter.get("/", async (req: AuthenticatedRequest, res) => {
     user: {
       id: user.id,
       name: user.name,
-      role: user.role,
+      role: effectiveRole(user),
+      primaryFamily: user.role === "FAMILY" && user.isPrimaryFamily,
       email: user.email,
       phone: user.phone,
-      canViewTimestamps: user.canViewTimestamps,
+      canViewTimestamps: user.canViewTimestamps || (user.role === "FAMILY" && user.isPrimaryFamily),
     },
     household: { timezone: household.timezone, workweekStartWeekday: household.workweekStartWeekday },
   });

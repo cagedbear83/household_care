@@ -2,6 +2,7 @@ import { Router, type Response } from "express";
 import { requireAuth, type AuthenticatedRequest } from "../auth/middleware";
 import { db } from "../db";
 import { listTaskEvidence, loadViewerImage } from "../services/evidence.service";
+import { isPhotoRemoved } from "../services/photo-retention";
 
 // Evidence is visible to the client and administrators, and to a family
 // viewer only when the client explicitly approved timestamp/evidence access.
@@ -32,6 +33,9 @@ evidenceRouter.get("/task/:taskId", async (req: AuthenticatedRequest, res) => {
 // Always the metadata-stripped copy. The original is kept for audit and is not served here.
 evidenceRouter.get("/:id/image", async (req: AuthenticatedRequest, res) => {
   if (!(await mayViewEvidence(req))) return res.status(403).json({ error: "Not authorized for this action" });
+  if (await isPhotoRemoved(req.auth!.householdId, req.params.id!)) {
+    return res.status(410).json({ error: "This photo was removed after one year. The record that it was taken is kept.", code: "PHOTO_REMOVED" });
+  }
   const bytes = await loadViewerImage(req.auth!.householdId, req.params.id!);
   if (!bytes) return res.status(404).json({ error: "Not found" });
   noStore(res);

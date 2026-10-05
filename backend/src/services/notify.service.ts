@@ -22,7 +22,7 @@ export interface OutgoingMessage {
   to: string;
   subject?: string;
   body: string;
-  kind: "invite" | "verification" | "password_reset" | "alert";
+  kind: "invite" | "verification" | "password_reset" | "alert" | "weekly_hours";
 }
 
 export const devOutboxEnabled = () => process.env.NODE_ENV !== "production" && process.env.ENABLE_DEV_OUTBOX !== "false";

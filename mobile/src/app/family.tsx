@@ -8,6 +8,7 @@ import {
   inviteFamily,
   resendFamilyInvite,
   revokeFamily,
+  makePrimaryFamily,
   setFamilyVisibility,
   type Delivery,
   type FamilyEntry,
@@ -71,6 +72,9 @@ export default function FamilyScreen() {
   const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [rowNotice, setRowNotice] = useState<Record<string, { who: string; delivery: Delivery } | string>>({});
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  const isAdmin = user?.role === "ADMIN";
+  const [makingPrimary, setMakingPrimary] = useState<string | null>(null);
+  const [primaryReason, setPrimaryReason] = useState("");
 
   const load = useCallback(async () => {
     if (!token || user?.role === "IP" || user?.role === "FAMILY") return;
@@ -251,6 +255,11 @@ export default function FamilyScreen() {
               {f.relationship ? ` (${f.relationship})` : ""}
             </Text>
             <Text style={[styles.status, f.status === "ACTIVE" && styles.statusGood]}>{STATUS_TEXT[f.status]}</Text>
+            {f.isPrimary && (
+              <Text style={styles.primaryNote}>
+                Primary family member: the same access as the client, and the same notifications. The client cannot remove this role; only an administrator can change it.
+              </Text>
+            )}
             <Text style={styles.small}>
               {f.email ? `Email: ${f.email}${f.emailVerified ? " (verified)" : f.invitedVia === "EMAIL" ? " (invited)" : ""}` : "Email: not added yet"}
             </Text>
@@ -293,7 +302,33 @@ export default function FamilyScreen() {
                     <Text style={styles.outlineText}>{f.canViewTimestamps ? "Hide photos and times" : "Allow photos and times"}</Text>
                   </Pressable>
                 )}
-                {isClient &&
+                {isAdmin && f.status === "ACTIVE" && !f.isPrimary && f.userId && (
+                  makingPrimary === f.id ? (
+                    <View style={styles.primaryForm}>
+                      <Text style={styles.small}>Make {f.name} the primary family member? Say why. This is recorded.</Text>
+                      <TextInput style={styles.input} accessibilityLabel="Reason for changing the primary family member" value={primaryReason} onChangeText={setPrimaryReason} />
+                      <View style={styles.row}>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Make ${f.name} the primary family member`}
+                          disabled={rowBusy === f.id || primaryReason.trim().length < 3}
+                          onPress={() => rowAction(f.id, () => makePrimaryFamily(token!, f.userId!, primaryReason.trim()), () => { setMakingPrimary(null); setPrimaryReason(""); })}
+                          style={[styles.outline, (rowBusy === f.id || primaryReason.trim().length < 3) && { opacity: 0.45 }]}
+                        >
+                          <Text style={styles.outlineText}>Make primary</Text>
+                        </Pressable>
+                        <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={() => setMakingPrimary(null)} style={styles.outline}>
+                          <Text style={styles.outlineText}>Cancel</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : (
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Make ${f.name} the primary family member`} onPress={() => setMakingPrimary(f.id)} style={styles.outline}>
+                      <Text style={styles.outlineText}>Make primary</Text>
+                    </Pressable>
+                  )
+                )}
+                {isClient && !f.isPrimary &&
                   (confirmRevoke === f.id ? (
                     <>
                       <Pressable
@@ -334,6 +369,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 26, fontWeight: "700" },
   help: { fontSize: 15, color: "#333" },
   section: { fontSize: 20, fontWeight: "700", marginTop: 10 },
+  primaryNote: { fontSize: 14, fontWeight: "700", color: "#1a1a1a", backgroundColor: "#eef3ff", borderWidth: 1, borderColor: "#9db4e8", borderRadius: 6, padding: 8 },
+  primaryForm: { gap: 8, flexBasis: "100%" },
   card: { borderWidth: 1, borderColor: "#c8c8c8", borderRadius: 10, padding: 14, gap: 8 },
   dim: { backgroundColor: "#f2f2f2", opacity: 0.85 },
   cardTitle: { fontSize: 18, fontWeight: "700" },

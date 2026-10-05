@@ -107,7 +107,7 @@ const taskInclude = {
   template: { select: { groupName: true } },
   shift: { select: { localDate: true, ip: { select: { name: true } } } },
   evidence: {
-    select: { id: true, eventId: true, contentHash: true, byteSize: true, uploadAcceptedAtServer: true },
+    select: { id: true, eventId: true, contentHash: true, byteSize: true, uploadAcceptedAtServer: true, purgedAt: true },
     orderBy: { uploadAcceptedAtServer: "asc" as const },
   },
 } satisfies Prisma.TaskInstanceInclude;
@@ -174,6 +174,8 @@ async function toReviewTasks(householdId: string, tasks: TaskRow[], viewer: View
           uploadAcceptedAtServer: e.uploadAcceptedAtServer,
           contentHashShort: e.contentHash.slice(0, 12),
           byteSize: e.byteSize,
+          // The picture was removed after its year; the record that it was taken stays.
+          removed: e.purgedAt !== null,
           locationVerification: ((byEventId.get(e.eventId)?.payload ?? {}) as { locationVerification?: string }).locationVerification ?? null,
         }))
       : [],

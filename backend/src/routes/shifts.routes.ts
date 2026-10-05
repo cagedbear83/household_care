@@ -6,6 +6,7 @@ import { checkIn, checkOut, CheckInRejectedError } from "../services/authorizati
 import { evaluateGeofence } from "../services/geofence.service";
 import { localDateString } from "../services/time.service";
 import { toIpShiftDto, toIpTaskDtos } from "../services/ip-dto";
+import { clientIsAway } from "../services/away.service";
 
 export const shiftsRouter = Router();
 shiftsRouter.use(requireAuth);
@@ -28,9 +29,10 @@ shiftsRouter.get("/today", requireRole("IP"), async (req: AuthenticatedRequest, 
   });
 
   if (!shift) {
-    return res.json({ shift: null, message: "No scheduled shift today." });
+    return res.json({ shift: null, message: "No scheduled shift today.", workPaused: await clientIsAway(req.auth!.householdId) });
   }
-  return res.json({ shift: toIpShiftDto(shift, await toIpTaskDtos(shift.taskInstances)) });
+  // workPaused: the client is away, so check-in and tasks are paused (the IP is never told why).
+  return res.json({ shift: toIpShiftDto(shift, await toIpTaskDtos(shift.taskInstances)), workPaused: await clientIsAway(req.auth!.householdId) });
 });
 
 const coordsSchema = z.object({

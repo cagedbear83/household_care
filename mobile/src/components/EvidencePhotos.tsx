@@ -30,14 +30,23 @@ export function EvidencePhotos({ evidence, token, timezone, comments, onComment 
   const [openId, setOpenId] = useState<string | null>(null);
   if (evidence.length === 0) return null;
   const open = evidence.find((e) => e.id === openId);
+  const kept = evidence.filter((e) => !e.removed);
+  const removed = evidence.length - kept.length;
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.label}>
-        {evidence.length === 1 ? "Photo" : `${evidence.length} photos`} (tap to enlarge)
-      </Text>
+      {kept.length > 0 && (
+        <Text style={styles.label}>
+          {kept.length === 1 ? "Photo" : `${kept.length} photos`} (tap to enlarge)
+        </Text>
+      )}
+      {removed > 0 && (
+        <Text style={styles.removed} accessibilityLiveRegion="polite">
+          {removed === 1 ? "A photo was" : `${removed} photos were`} removed after one year. The record that {removed === 1 ? "it was" : "they were"} taken is kept.
+        </Text>
+      )}
       <View style={styles.row}>
-        {evidence.map((e, i) => (
+        {evidence.map((e, i) => (e.removed ? null : (
           <Pressable
             key={e.id}
             accessibilityRole="button"
@@ -47,7 +56,7 @@ export function EvidencePhotos({ evidence, token, timezone, comments, onComment 
           >
             <AuthImage uri={evidenceImageUrl(e.id)} token={token} style={styles.thumb} resizeMode="cover" accessibilityLabel={`Photo ${i + 1}`} />
           </Pressable>
-        ))}
+        )))}
       </View>
 
       {open && (
@@ -74,6 +83,7 @@ export function EvidencePhotos({ evidence, token, timezone, comments, onComment 
 const styles = StyleSheet.create({
   wrap: { gap: 8 },
   label: { fontSize: 14, fontWeight: "600", color: "#333" },
+  removed: { fontSize: 14, color: "#555", fontStyle: "italic" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   thumbWrap: { borderWidth: 2, borderColor: "#c8c8c8", borderRadius: 8, overflow: "hidden" },
   thumbSelected: { borderColor: "#0b5fff" },

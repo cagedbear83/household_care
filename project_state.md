@@ -14,7 +14,7 @@ Roles: **CLIENT**, **ADMIN** (also the case manager; same powers as the client e
 
 ## Status in one line
 
-Backend and app are feature-complete for the scope below and verified (204 backend tests, mobile type-check/lint clean, Android bundle builds, browser walkthroughs). **Not yet run on a real phone or emulator**, **not deployed**, **the first commit is on `main`**; there is no remote yet.
+Backend and app are feature-complete for the scope below and verified (249 backend tests, mobile type-check/lint clean, Android bundle builds, browser walkthroughs). **Not yet run on a real phone or emulator**, **not deployed**, and **recent work is not committed**: the first commit is on `main` and the later changes (fixed retention, program rules) are uncommitted on `development`. The repository is on GitHub (`cagedbear83/household_care`, public as of this writing).
 
 ## Stack
 
@@ -30,7 +30,7 @@ Three terminals:
 2. `cd backend && npm run dev` (API on **4000**)
 3. `cd mobile && npx expo start --web` (web on **8081**); Android emulator: `npx expo start --android --port 8082` (reaches the API at `10.0.2.2:4000`)
 
-Tests: `cd backend && npm test` (runs against the dev DB using throwaway households; 11 files, 204 tests). Mobile checks: `npx tsc --noEmit`, `npx expo lint`, `npm run check:voice`, `npx expo export -p android`.
+Tests: `cd backend && npm test` (runs against the dev DB using throwaway households; 11 files, 200 tests). Mobile checks: `npx tsc --noEmit`, `npx expo lint`, `npm run check:voice`, `npx expo export -p android`.
 
 Demo accounts (all `ChangeMe123!`): `client@example.com`, `admin@example.com`, `ip@example.com`. Family: `sam.sister@example.com` / `fresh-start-2026` (approved for photos and times). Helpers: `backend/scripts/demo-today.ts` (a checked-in visit for today with tasks done), `demo-alerts.ts` (sample alerts), `verify-chain.ts`.
 
@@ -39,8 +39,8 @@ With no SMTP/Twilio configured, messages print to the backend console and are st
 ## Layout
 
 - `backend/src/services/`: one file per domain (authorization, schedule, task, evidence, review, comment, invite, chat, food, shopping, alert + alert-feed, summary, report, correction, retention, profile, password-reset, notify, event, time, geofence...). `routes/` mounts them; `index.ts` wires routers and the per-minute cron (close expired authorizations, escalate unanswered food requests, deliver pending alert messages).
-- `backend/prisma/`: `schema.prisma` and 8 migrations (latest `20261004113713_corrections_retention`). Models include Household, User, ScheduledShift, WeekAllowance, Event (hash chain), TaskTemplate/TaskInstance, Evidence, Invite, Comment, Conversation/Message, FoodDisposalRequest, ShoppingItem, Alert/AlertRead, ContactChange, CorrectionRequest/Correction, RetentionPolicy/RetentionHold.
-- `mobile/src/app/`: `home` (hub), `today` (IP shift), `alerts`, `review`, `corrections`, `food`, `shopping`, `schedule`, `templates`, `family`, `hear`, `reports`, `retention`, `settings`, `messages/*`, `supplies` (IP), `capture` (camera), `login`, `forgot-password`, `invite`.
+- `backend/prisma/`: `schema.prisma` and 11 migrations (latest `20261005185447_food_photo_removal`). Models include Household, User, ScheduledShift, WeekAllowance, Event (hash chain), TaskTemplate/TaskInstance, Evidence, Invite, Comment, Conversation/Message, FoodDisposalRequest, ShoppingItem, Alert/AlertRead, AwayPeriod, Preservation, WeeklyHoursNotice, PayPeriodReminder, ContactChange, CorrectionRequest/Correction.
+- `mobile/src/app/`: `home` (hub), `today` (IP shift), `alerts`, `review`, `corrections`, `food`, `shopping`, `schedule`, `templates`, `family`, `hear`, `reports`, `settings`, `messages/*`, `supplies` (IP), `capture` (camera), `login`, `forgot-password`, `invite`.
 - `mobile/src/lib/`: `api.ts` (all calls and types), auth, dates, location, storage, speech, badges, voice parser/input, report formatting/HTML, print.
 
 ## What is built
@@ -59,7 +59,15 @@ With no SMTP/Twilio configured, messages print to the backend console and are st
 - **Settings:** name, email/phone change by code sent to the new contact, password change (other devices signed out).
 - **Reports:** day/week/month/custom, task outcome counts and the spec's percentage formulas, authorized vs observed time, weekly cap table, exceptions, family without approval gets task counts only, print or save as PDF from the device, nothing stored (only a "report generated" audit event).
 - **Corrections:** IP reports a mistake; client/admin appends a correction linked to the original event (completion error, attendance note, other note) or answers without one; originals untouched; corrected task stops counting as done and reopens for the IP.
-- **Retention:** period history, a record is protected for the longest period in force since it was made (a later reduction never unlocks it), preservation holds, unresolved disputes preserved, password re-entry and audit for every change, status counts. The app never deletes anything.
+- **Retention:** a fixed rule in `backend/src/services/retention.ts`: every record is kept at least ten years from the event date; nothing can change it (no screen, endpoint, role or setting; a test pins that). Disputed material is kept regardless of age. The app never deletes anything.
+
+## Decisions made
+
+- **Program rules decided (from the user's answers and the HSP forms and SEIU agreement):** workweek Sunday to Saturday; weekly limit = Service Plan hours (36/week); at most 8 scheduled hours per day for everyone (no override); a warning at 14+ hours recorded in 24 (program limit 16 without counselor approval); **photos kept one year, fixed**, and an approval never deletes (disputed, corrected or preserved ones are kept); the **primary family member** (first to activate) has the client's access and notifications, the client cannot remove them, only an administrator can change it; **away mode** may be set by the client, an administrator or the primary family member; the IP gets a weekly hours email (Sunday morning) and the client side gets pay-period reminders (15th and last day). No write-ups, supervision log or three-strikes feature (the client may terminate without cause or notice and it is not grievable; the "occurrences" in the union agreement are the State's, for unauthorized overtime). The app never stores SSNs, dates of birth or case numbers. The household uses the state's EVV (Sandata); the app stays supplementary and is not connected to it.
+- **Not decided / ask the counselor:** whether the state treats app photos or logs as required service records (which could argue for keeping photos longer than a year); whether any approved integration with the state's EVV exists.
+
+- **Retention is fixed at ten years and is not configurable by anyone.** It is a built-in product rule (and a selling point), not a setting. Reason: the Illinois wage-claim window is ten years; payroll, pay-stub and leave records are three years; federal employment-tax records are about four to five. Not legal advice; confirm with the authorizing program. Research notes: Illinois Wage Payment and Collection Act, Minimum Wage Law and Paid Leave for All Workers Act (3 years), FLSA 29 CFR 516 (3 years payroll, 2 years time cards), IRS employment tax recordkeeping (4 years after the 4th-quarter filing), and the Home Services Program rule 89 Ill. Adm. Code 686.10 (the customer is the employer; no retention period stated there; a possible six-year program rule is unconfirmed).
+- At ten years records are archived and compressed, not deleted by the app. Evidence photos get a shorter schedule (to be defined).
 
 ## Key invariants to keep
 
@@ -76,12 +84,12 @@ With no SMTP/Twilio configured, messages print to the backend console and are st
 1. **Deployment.** Plan: free tier for demos (Render + Neon + Cloudflare R2, with a `/internal/tick` endpoint for the cron), and **AWS with a signed BAA for real client data** (EC2/Fargate, RDS, S3 with Object Lock, SES, Secrets Manager). Needs an S3 evidence adapter (the one file to swap is `evidence-store.ts`), container setup, CORS locked to the real web address, HTTPS. Free hosts generally offer no HIPAA agreement. Confirm with compliance whether HIPAA applies.
 2. **Real devices.** Camera, GPS and print/PDF have not been run on a phone or emulator; reading aloud has only been checked in a browser; no screen-reader (TalkBack/VoiceOver) pass.
 3. **Push notifications** (everything polls today; urgent items are texted or emailed). Voice input and voice approvals on phones. True background location needs a native build with `expo-task-manager`.
-4. **Retention follow-through:** archive to retention-locked storage and disposal of expired records; PIN/biometric re-confirmation instead of password; step-up auth and idle lock/session expiry for admin actions (spec asks for 5-minute lock, 30-minute session).
+4. **Retention follow-through:** the **archive-and-compress job** for records past ten years (move them to cheaper storage; never delete them in the app). Photos already have their fixed one-year removal. Also still open: step-up auth (PIN/biometric) and idle lock/session expiry for admin actions (spec asks for 5-minute lock, 30-minute session).
 5. **Reports:** IP's own hours report, CSV export.
 6. **Scheduling gaps:** weekly/monthly task distribution across visits; marking unresolved tasks missed at shift end and carrying them to an admin-approved later shift; requesting a task; family view of the shopping list; admin dashboard; flagging earlier shifts with a missing checkout on admin screens.
 7. **Live providers:** SMTP and Twilio code paths have never run against real services.
 8. **Rate limiter is per process** (in memory); needs a shared store or edge limiting if more than one server runs.
-9. **Config items the spec lists** that still need real values: apartment coordinates/address, the program workweek, actual schedule, service-plan duties, retention choice (currently the 2-year recommendation, confirmed in the demo data only).
+9. **Config items the spec lists** that still need real values: apartment coordinates/address, the program workweek, actual schedule, service-plan duties, account contacts, recurring task days and object/storage locations.
 
 ## Gotchas for whoever continues
 
@@ -96,6 +104,6 @@ With no SMTP/Twilio configured, messages print to the backend console and are st
 
 ## Verification record (as of this snapshot)
 
-- Backend: `tsc` clean; vitest 204 passed across 11 files, run repeatedly with no failures after the ordering fix.
+- Backend: `tsc` clean; vitest 200 passed across 11 files, run repeatedly with no failures after the ordering fix.
 - Mobile: `tsc` and `expo lint` clean; `npm run check:voice` passes 25 phrases; `expo export -p android` bundles.
-- Browser walkthroughs done for: Home per role, Alerts flow (tap to acknowledge), Hear, Settings (name, phone code, password), Reports and print output, IP report -> admin correction -> IP sees reopened task, Retention (confirm, shorten rules, hold place/release).
+- Browser walkthroughs done for: Home per role, Alerts flow (tap to acknowledge), Hear, Settings (name, phone code, password), Reports and print output, IP report -> admin correction -> IP sees reopened task.

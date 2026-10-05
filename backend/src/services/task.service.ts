@@ -4,6 +4,7 @@ import { appendEvent } from "./event.service";
 import { raiseAlert } from "./alert.service";
 import { isShiftOpenForTaskSubmission } from "./authorization.service";
 import { hasFreshEvidence } from "./evidence.service";
+import { AWAY_MESSAGE, clientIsAway } from "./away.service";
 
 export class TaskActionRejectedError extends Error {
   constructor(public code: string, message: string) {
@@ -63,6 +64,9 @@ async function loadOpenTaskOrThrow(taskInstanceId: string, ipUserId: string) {
   const shift = await db.scheduledShift.findUnique({ where: { id: task.shiftId } });
   if (!shift || shift.ipUserId !== ipUserId) {
     throw new TaskActionRejectedError("NOT_AUTHORIZED", "This task does not belong to your active shift.");
+  }
+  if (await clientIsAway(task.householdId)) {
+    throw new TaskActionRejectedError("CLIENT_AWAY", AWAY_MESSAGE);
   }
   if (!(await isShiftOpenForTaskSubmission(task.shiftId))) {
     throw new TaskActionRejectedError(

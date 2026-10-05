@@ -17,7 +17,9 @@ export type AlertType =
   | "early_checkout"
   | "unresolved_tasks_near_checkout"
   | "suspicious_pattern"
-  | "completion_error_reported";
+  | "completion_error_reported"
+  | "client_away"
+  | "long_day";
 
 interface AlertMeta {
   title: string;
@@ -56,6 +58,8 @@ const ALERT_META: Record<AlertType, AlertMeta> = {
   food_hazard: { title: "Food hazard reported", severity: "URGENT", audience: ["CLIENT", "ADMIN"], link: "/food", notify: false },
   low_supply: { title: "A supply is running low", severity: "NORMAL", audience: ["CLIENT", "ADMIN"], link: "/shopping", notify: false },
   completion_error_reported: { title: "A mistake was reported", severity: "NORMAL", audience: ["ADMIN", "CLIENT"], link: "/corrections", notify: true },
+  client_away: { title: "Away mode changed", severity: "NORMAL", audience: ["ADMIN", "CLIENT"], link: "/home", notify: false },
+  long_day: { title: "A long day", severity: "NORMAL", audience: ["ADMIN", "CLIENT"], link: "/reports", notify: true },
   suspicious_pattern: { title: "Activity that may need a look", severity: "URGENT", audience: ["ADMIN"], link: "/review", notify: true },
 };
 

@@ -56,7 +56,8 @@ export type Role = "ADMIN" | "CLIENT" | "IP" | "FAMILY";
 
 export interface LoginResponse {
   token: string;
-  user: { id: string; name: string; role: "ADMIN" | "CLIENT" | "IP" | "FAMILY"; householdId: string };
+  // The primary family member comes back with role CLIENT (the same access) and primaryFamily true.
+  user: { id: string; name: string; role: "ADMIN" | "CLIENT" | "IP" | "FAMILY"; householdId: string; primaryFamily?: boolean };
 }
 
 /** Sign in with an email address or a phone number. */
@@ -74,7 +75,7 @@ export function resetPassword(identifier: string, code: string, newPassword: str
 }
 
 export interface MeResponse {
-  user: { id: string; name: string; role: LoginResponse["user"]["role"]; email: string | null; phone: string | null; canViewTimestamps: boolean };
+  user: { id: string; name: string; role: LoginResponse["user"]["role"]; primaryFamily: boolean; email: string | null; phone: string | null; canViewTimestamps: boolean };
   household: { timezone: string; /** 0 = Sunday .. 6 = Saturday */ workweekStartWeekday: number };
 }
 
@@ -114,7 +115,8 @@ export interface ShiftDto {
 }
 
 export function getTodayShift(token: string) {
-  return request<{ shift: ShiftDto | null; message?: string }>("/shifts/today", { token });
+  // workPaused: the client is away, so check-in and tasks are paused (the IP is never told why).
+  return request<{ shift: ShiftDto | null; message?: string; workPaused?: boolean }>("/shifts/today", { token });
 }
 
 export interface Coords {
@@ -256,6 +258,8 @@ export interface ReviewEvidence {
   uploadAcceptedAtServer: string;
   contentHashShort: string;
   byteSize: number;
+  /** The picture was removed after its year; the record that it was taken stays. */
+  removed: boolean;
   locationVerification: "VERIFIED" | "UNVERIFIED" | "FAILED" | null;
 }
 
@@ -352,6 +356,9 @@ export interface FamilyEntry {
   phoneVerified: boolean;
   canViewTimestamps: boolean;
   invitedBy: string | null;
+  userId: string | null;
+  /** The first family member to sign up: the same access as the client, and the client cannot remove them. */
+  isPrimary: boolean;
 }
 
 export interface Delivery {
@@ -375,7 +382,7 @@ export function inviteFamily(
 export const resendFamilyInvite = (token: string, id: string) =>
   request<{ id: string; delivery: Delivery }>(`/family/${id}/resend`, { method: "POST", token, body: {} });
 
-export const revokeFamily = (token: string, id: string) => request<{ ok: true }>(`/family/${id}/revoke`, { method: "POST", token, body: {} });
+export const revokeFamily = (token: string, id: string, reason?: string) => request<{ ok: true }>(`/family/${id}/revoke`, { method: "POST", token, body: { reason } });
 
 export const setFamilyVisibility = (token: string, id: string, canViewTimestamps: boolean) =>
   request<{ ok: true }>(`/family/${id}`, { method: "PATCH", token, body: { canViewTimestamps } });
@@ -644,6 +651,7 @@ export interface Profile {
   emailVerified: boolean;
   phoneVerified: boolean;
   relationship: string | null;
+  primaryFamily: boolean;
   canViewTimestamps: boolean | null;
   household: { name: string; timezone: string };
 }
@@ -782,51 +790,42 @@ export const reportCompletionError = (token: string, body: { taskInstanceId?: st
   request<{ id: string; status: string }>("/corrections/report", { method: "POST", token, body });
 export const getMyCorrections = (token: string) => request<{ requests: MyCorrectionRequest[] }>("/corrections/mine", { token });
 
-// --- Retention ----------------------------------------------------------------------
+// --- Away mode ---------------------------------------------------------------------
 
-export interface RetentionStatus {
-  now: string;
-  timezone: string;
-  policy: {
-    days: number;
-    confirmed: boolean;
-    recommendedDays: number;
-    minDays: number;
-    maxDays: number;
-    setBy: string | null;
-    setAt: string | null;
-    reducedFrom: number | null;
-  };
-  history: { retentionDays: number; effectiveFrom: string | null; setBy: string | null; reason: string | null; isDefault: boolean }[];
-  holds: {
-    id: string;
-    reason: string;
-    fromDate: string | null;
-    toDate: string | null;
-    placedBy: string | null;
-    placedAt: string;
-    active: boolean;
-    releasedBy: string | null;
-    releasedAt: string | null;
-    releaseReason: string | null;
-  }[];
-  records: {
-    events: number;
-    photos: number;
-    oldestRecordedAt: string | null;
-    earliestExpiry: string | null;
-    pastRetention: { events: number; photos: number };
-    reviewable: { events: number; photos: number };
-    heldBack: { events: number; photos: number };
-    unresolvedDisputes: number;
-  };
-  notes: string[];
+export type AwayKind = "HOSPITAL" | "VACATION" | "OTHER";
+
+/** The client's side sees the details; everyone else (including the IP) only learns yes or no. */
+export type AwayStatus =
+  | { away: false }
+  | { away: true; id?: string; kind?: AwayKind; startedAt?: string; expectedReturnDate?: string | null; note?: string | null; setBy?: string | null };
+
+export const getAway = (token: string) => request<AwayStatus>("/away", { token });
+export const startAway = (token: string, body: { kind: AwayKind; expectedReturnDate?: string; note?: string }) =>
+  request<{ id: string }>("/away/start", { method: "POST", token, body });
+export const endAway = (token: string) => request<{ ok: true }>("/away/end", { method: "POST", token, body: {} });
+
+// --- Preserving a range of dates ------------------------------------------------------
+
+export interface PreservationEntry {
+  id: string;
+  fromDate: string;
+  toDate: string;
+  reason: string;
+  placedBy: string | null;
+  placedAt: string;
+  active: boolean;
+  releasedBy: string | null;
+  releasedAt: string | null;
+  releaseReason: string | null;
 }
 
-export const getRetention = (token: string) => request<RetentionStatus>("/retention", { token });
-export const setRetentionPeriod = (token: string, body: { days: number; reason?: string; password: string }) =>
-  request<RetentionStatus>("/retention/policy", { method: "POST", token, body });
-export const placeRetentionHold = (token: string, body: { reason: string; fromDate?: string; toDate?: string; password: string }) =>
-  request<RetentionStatus>("/retention/holds", { method: "POST", token, body });
-export const releaseRetentionHold = (token: string, id: string, body: { reason: string; password: string }) =>
-  request<RetentionStatus>(`/retention/holds/${id}/release`, { method: "POST", token, body });
+export const getPreservations = (token: string) => request<{ preservations: PreservationEntry[] }>("/preservations", { token });
+export const placePreservation = (token: string, body: { fromDate: string; toDate: string; reason: string }) =>
+  request<{ id: string }>("/preservations", { method: "POST", token, body });
+export const releasePreservation = (token: string, id: string, reason: string) =>
+  request<{ ok: true }>(`/preservations/${id}/release`, { method: "POST", token, body: { reason } });
+
+// --- The primary family member -----------------------------------------------------------
+
+export const makePrimaryFamily = (token: string, userId: string, reason: string) =>
+  request<{ ok: true }>("/family/primary", { method: "POST", token, body: { userId, reason } });

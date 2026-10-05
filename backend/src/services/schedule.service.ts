@@ -88,6 +88,13 @@ async function prepare(actor: Actor, ipUserId: string, details: ShiftDetails): P
   };
 }
 
+/**
+ * No more than eight scheduled hours in a day. This is a rule of the product: nobody (the client or an
+ * administrator) can schedule past it. The program itself allows up to sixteen hours in twenty-four, with the
+ * counselor's approval beyond that; we stop well short of it.
+ */
+export const MAX_DAILY_SCHEDULED_MINUTES = 8 * 60;
+
 interface InsertOptions {
   id?: string;
   recurringSourceId?: string;
@@ -133,6 +140,14 @@ async function insertShift(
   });
   if (sameDay) {
     throw new ScheduleRejectedError("DUPLICATE_DAY", `This IP already has an entry for ${details.localDate}.`);
+  }
+
+  if (p.working && p.shiftMinutes > MAX_DAILY_SCHEDULED_MINUTES) {
+    throw new ScheduleRejectedError(
+      "DAILY_LIMIT_EXCEEDED",
+      `A visit can be at most ${MAX_DAILY_SCHEDULED_MINUTES / 60} hours in a day. This one is ${(p.shiftMinutes / 60).toFixed(2)} hours.`,
+      { requestedMinutes: p.shiftMinutes, limitMinutes: MAX_DAILY_SCHEDULED_MINUTES }
+    );
   }
 
   if (p.working) {

@@ -42,6 +42,14 @@ export async function readRef(ref: string): Promise<Buffer> {
   return fs.readFile(resolveRef(ref));
 }
 
+/**
+ * Removes one stored file. Used only when a photo reaches the end of its fixed period (see photo-retention.ts);
+ * nothing else deletes evidence. A file that is already gone is not an error.
+ */
+export async function removeRef(ref: string): Promise<void> {
+  await fs.rm(resolveRef(ref), { force: true });
+}
+
 export const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
 /** Test helper: removes everything stored for one household. */
