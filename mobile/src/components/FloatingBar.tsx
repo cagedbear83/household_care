@@ -62,8 +62,8 @@ export function FloatingBar() {
   const urgent = badges.alertsUrgent > 0;
 
   return (
-    <View pointerEvents="box-none" style={styles.layer}>
-      <View pointerEvents="box-none" style={styles.row}>
+    <View style={styles.layer}>
+      <View style={styles.row}>
         {showAlerts && (
           <Pressable
             accessibilityRole="button"
@@ -94,8 +94,8 @@ export function FloatingBar() {
 }
 
 const styles = StyleSheet.create({
-  layer: { position: "absolute", left: 0, right: 0, bottom: 0, top: 0, justifyContent: "flex-end", padding: 16 },
-  row: { flexDirection: "row", justifyContent: "flex-end", flexWrap: "wrap", gap: 10 },
+  layer: { position: "absolute", left: 0, right: 0, bottom: 0, top: 0, justifyContent: "flex-end", padding: 16, pointerEvents: "box-none" },
+  row: { flexDirection: "row", justifyContent: "flex-end", flexWrap: "wrap", gap: 10, pointerEvents: "box-none" },
   button: {
     flexDirection: "row",
     alignItems: "center",
@@ -105,11 +105,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 20,
     minHeight: 52,
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.25)",
   },
   // Normal: an empty box. Something urgent waiting: the box fills in.
   alertsButton: { backgroundColor: "#fff", borderWidth: 2, borderColor: "#1a1a1a" },
