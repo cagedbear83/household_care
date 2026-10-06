@@ -772,3 +772,48 @@ model PayPeriodReminder {
 
   @@id([householdId, localDate])
 }
+
+// ---------------------------------------------------------------------------
+// Wellbeing check-ins (PHQ-2, GAD-2) for the client
+// ---------------------------------------------------------------------------
+
+enum CheckInInstrument {
+  PHQ2
+  GAD2
+}
+
+// What the administrator has set up for the client, once the client agreed.
+model CheckInPlan {
+  id                String            @id @default(uuid())
+  householdId       String
+  instrument        CheckInInstrument
+  everyDays         Int               // 1, 2 or 3
+  active            Boolean           @default(true)
+  startDate         String            // YYYY-MM-DD in the household timezone; nothing is due before it
+  consentRecordedAt DateTime
+  consentNote       String?
+  setByUserId       String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([householdId, instrument])
+}
+
+// One answer (or one skip) per instrument per day. The answers and score are
+// private health information: only an administrator reads them, and they are
+// never written to the audit log or sent in any message.
+model CheckInResponse {
+  id               String            @id @default(uuid())
+  householdId      String
+  instrument       CheckInInstrument
+  localDate        String
+  skipped          Boolean           @default(false)
+  answers          Int[]
+  score            Int?
+  flagged          Boolean           @default(false)
+  answeredByUserId String
+  answeredByRole   Role              // the person's own role: a primary family member answering shows as FAMILY
+  createdAt        DateTime          @default(now())
+
+  @@unique([householdId, instrument, localDate])
+}

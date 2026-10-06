@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useBadges } from "@/lib/badges";
 import { getMe, type Role } from "@/lib/api";
 import { AwayCard } from "@/components/AwayCard";
+import { CheckInDueCard } from "@/components/CheckInDueCard";
 
 interface Tile {
   key: string;
@@ -19,6 +20,7 @@ const STAFF: Role[] = ["CLIENT", "ADMIN"];
 // The order here is the order on screen.
 const TILES: Tile[] = [
   { key: "today", label: "Today", note: "Check in, tasks and photos", href: "/today", roles: ["IP"] },
+  { key: "checkin", label: "Check-in", note: "A few questions about how you feel", href: "/checkin", roles: ["CLIENT"] },
   { key: "alerts", label: "Alerts", note: "Urgent and new notices", href: "/alerts", roles: STAFF },
   { key: "review", label: "Review", note: "Approve or dispute work", href: "/review", roles: [...STAFF, "FAMILY"] },
   { key: "corrections", label: "Corrections", note: "Mistakes the IP reported, and notes", href: "/corrections", roles: STAFF },
@@ -27,6 +29,7 @@ const TILES: Tile[] = [
   { key: "shopping", label: "Shopping", note: "What the house needs", href: "/shopping", roles: STAFF },
   { key: "schedule", label: "Schedule", note: "Visits and weekly hours", href: "/schedule", roles: STAFF },
   { key: "templates", label: "Tasks", note: "The checklist for each visit", href: "/templates", roles: STAFF },
+  { key: "wellbeing", label: "Wellbeing", note: "Set up check-ins and read answers", href: "/wellbeing", roles: ["ADMIN"] },
   { key: "family", label: "Family", note: "Invitations and access", href: "/family", roles: STAFF },
   { key: "hear", label: "Hear", note: "Listen to an update", href: "/hear", roles: [...STAFF, "FAMILY"] },
   { key: "reports", label: "Reports", note: "Hours and task results", href: "/reports", roles: [...STAFF, "FAMILY"] },
@@ -69,6 +72,7 @@ export default function HomeScreen() {
       </Text>
       <Text style={styles.help}>Choose where you would like to go.</Text>
 
+      {user.role === "CLIENT" && token && <CheckInDueCard token={token} />}
       {onClientSide && token && timezone && <AwayCard token={token} timezone={timezone} />}
 
       <View style={styles.grid}>

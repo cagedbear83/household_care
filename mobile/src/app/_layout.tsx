@@ -16,6 +16,8 @@ export default function RootLayout() {
           <Stack.Screen name="invite" options={{ title: "Join Household Care", headerBackVisible: false }} />
           <Stack.Screen name="home" options={{ title: "Home", headerBackVisible: false }} />
           <Stack.Screen name="today" options={{ title: "Today", headerBackVisible: false }} />
+          <Stack.Screen name="checkin" options={{ title: "Check-in", headerBackVisible: false }} />
+          <Stack.Screen name="wellbeing" options={{ title: "Wellbeing check-ins", headerBackVisible: false }} />
           <Stack.Screen name="corrections" options={{ title: "Corrections", headerBackVisible: false }} />
           <Stack.Screen name="reports" options={{ title: "Reports", headerBackVisible: false }} />
           <Stack.Screen name="settings" options={{ title: "Settings", headerBackVisible: false }} />
