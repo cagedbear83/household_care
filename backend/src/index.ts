@@ -21,6 +21,7 @@ import { reportsRouter } from "./routes/reports.routes";
 import { correctionsRouter } from "./routes/corrections.routes";
 import { awayRouter } from "./routes/away.routes";
 import { preservationsRouter } from "./routes/preservations.routes";
+import { checkinsRouter } from "./routes/checkins.routes";
 import { removeExpiredPhotos } from "./services/photo-retention";
 import { sendPayPeriodReminders, sendWeeklyHoursNotices } from "./services/scheduled-notices.service";
 import { deliverPendingAlerts } from "./services/alert-feed.service";
@@ -55,6 +56,7 @@ app.use("/reports", reportsRouter);
 app.use("/corrections", correctionsRouter);
 app.use("/away", awayRouter);
 app.use("/preservations", preservationsRouter);
+app.use("/checkins", checkinsRouter);
 if (process.env.NODE_ENV !== "production") app.use("/dev", devRouter);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

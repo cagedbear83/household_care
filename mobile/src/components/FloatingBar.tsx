@@ -8,7 +8,7 @@ import { loadSpeechSettings, stopSpeaking } from "@/lib/speech";
 const POLL_MS = 15000;
 // Screens where floating buttons would be in the way or make no sense.
 // Home has a button for each of these already.
-const HIDDEN_ON = ["/", "/login", "/invite", "/capture", "/forgot-password", "/home"];
+const HIDDEN_ON = ["/", "/login", "/invite", "/capture", "/forgot-password", "/home", "/checkin"];
 
 const count = (n: number) => (n > 99 ? "99+" : String(n));
 

@@ -829,3 +829,54 @@ export const releasePreservation = (token: string, id: string, reason: string) =
 
 export const makePrimaryFamily = (token: string, userId: string, reason: string) =>
   request<{ ok: true }>("/family/primary", { method: "POST", token, body: { userId, reason } });
+
+// --- Wellbeing check-ins (PHQ-2, GAD-2) ----------------------------------------------------
+
+export type CheckInInstrument = "PHQ2" | "GAD2";
+
+export interface CheckInPlan {
+  instrument: CheckInInstrument;
+  everyDays: number;
+  active: boolean;
+  startDate: string;
+  consentRecordedAt: string;
+  consentNote: string | null;
+}
+
+export interface DueCheckIn {
+  instrument: CheckInInstrument;
+  title: string;
+  intro: string;
+  questions: string[];
+  options: { value: number; label: string }[];
+}
+
+export interface CheckInResult {
+  saved: true;
+  flagged: boolean;
+  message: string;
+  id: string;
+}
+
+export interface CheckInHistoryRow {
+  id: string;
+  instrument: CheckInInstrument;
+  localDate: string;
+  skipped: boolean;
+  answers: number[];
+  score: number | null;
+  flagged: boolean;
+  answeredBy: string | null;
+  answeredByRole: Role;
+}
+
+export const getCheckInPlans = (token: string) => request<{ plans: CheckInPlan[] }>("/checkins/plans", { token });
+export const setCheckInPlan = (token: string, body: { instrument: CheckInInstrument; everyDays: number; active?: boolean; clientAgreed: boolean; consentNote?: string }) =>
+  request<{ ok: true }>("/checkins/plans", { method: "PUT", token, body });
+export const pauseCheckIn = (token: string, instrument: CheckInInstrument, paused: boolean) =>
+  request<{ ok: true }>(`/checkins/plans/${instrument}/${paused ? "pause" : "resume"}`, { method: "POST", token, body: {} });
+export const getDueCheckIns = (token: string) => request<{ due: DueCheckIn[] }>("/checkins/due", { token });
+export const answerCheckIn = (token: string, instrument: CheckInInstrument, answers: number[]) =>
+  request<CheckInResult>(`/checkins/${instrument}/answer`, { method: "POST", token, body: { answers } });
+export const skipCheckIn = (token: string, instrument: CheckInInstrument) => request<{ saved: true }>(`/checkins/${instrument}/skip`, { method: "POST", token, body: {} });
+export const getCheckInHistory = (token: string, days = 60) => request<{ responses: CheckInHistoryRow[] }>(`/checkins/history?days=${days}`, { token });

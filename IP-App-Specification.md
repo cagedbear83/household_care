@@ -187,6 +187,12 @@ Immediate alerts: check-in; failed/outside-geofence verification; IP-claimed cli
 
 Suspicious patterns include 15 or more task completions in a rolling minute, unusual final-minute bursts, long shifts with little activity, GPS disabled/stale/missing, impossible reported location changes and repeated evidence. Evaluate identical timestamps using full stored precision; displayed minute matches are normal and do not establish wrongdoing. Thresholds are configurable and versioned. Flags prompt review and must never label fraud as proven automatically.
 
+## Wellbeing check-ins
+
+Optional, per client. An administrator, after the client agrees (the agreement is recorded), sets up a PHQ-2 (mood) and/or GAD-2 (anxiety) check-in to be asked every one, two or three days. The standard published questions and answer choices are used without changing the wording, and a total of 3 or more out of 6 is treated as needing a follow-up. The client answers on a large-button screen that can read each question aloud; the client may skip a turn ("Not today") or pause a check-in.
+
+Privacy: only administrators can read answers and scores. The IP never sees any part of this feature. A flagged result alerts administrators and texts the primary family member, in messages that carry no score and no topic; the client is shown a kind message with 988 and 911 and is not alerted about their own result. The audit log records that a check-in was answered and whether it was flagged, never the answers or score. The check-in is a screening aid, not a diagnosis, and not an emergency service.
+
 ## Reports and retention
 
 Daily, weekly, monthly and custom date-range reports; date search; printable/PDF output; Attendance & Exceptions report for early/late activity, GPS failures, disputes, missed duties, corrections, suspicious flags and excess time. Include report generation time, range, timezone, actor and separate authorized/observed totals.
